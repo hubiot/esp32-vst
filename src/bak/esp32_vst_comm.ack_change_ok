@@ -1,0 +1,1285 @@
+// ORG 2021/08/04 adachi
+// 2021/11/12
+// rex 騒音振動用
+//隠し機能でcloud<->local,通信周期、サンプリング周期、平均/測定値そのまま出力,動作モード表示
+//パスワードに `@0 の3文字でローカルに切り替え ,``` パラメータ表示, `@r 実験用RUT240WiFi設定, `@b 実験用BaffaloルータWiFi設定
+//ローカルモードにして、HOST IPに m 区切りで、通信周期(ms),サンプリング周期,1:平均/0:測定値を変更可能,1:cloud 0:local
+//通信間隔10分、サンプリング周期1秒，平均,クラウドで設定する場合
+//プロジェクトフォルダ(dataではない)にaws.hに認証データを入れておく
+// msc.txt(プロジェクトフォルダ/data)に動作モードデータを入れておく
+// msc.txtフォーマット 1:cloud 0:local,通信周期(ms),サンプリング周期(ms),1:平均値 0:測定値そのまま,0:Local 1:Cloud
+//文字コード:UTF-8,改行コードLF
+//レックス仕様の場合:クラウド、通信周期10min、サンプリング周期1s、平均の4つを立てに並べる
+// 1
+// 600000
+// 1000
+// 1
+//メニューのツール->ESP32 Skectch Data Upload
+// aws証明書は、ソースの中にいれた
+// esp32のflashを暗号化機能を使えば、独自に暗号化するより安全と判断
+//証明書を変更するには再コンパイルが必要
+
+#include "esp_system.h"
+#include <WiFi.h>
+// #include "FS.h"
+// #include "SPIFFS.h"
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <Wire.h>
+// #include "TimeLib.h" //Use Arduino time library ver1.5
+#include <HTTPClient.h>
+// #include <ArduinoJson.h>
+#include <EEPROM.h> //host ip 保管用
+#include "aws.h"    //aws証明書
+// #include "WireSlave.h"
+// #define I2C_SLAVE_ADDR 0x08
+char SC_BUF[200]; // serial char buff
+int SCB_CNT = 0;  // serial char cnt
+String SERIAL_BUF, PRE_SERIAL_BUF;
+int PAGE_NUM = 0; // 0:wifi set 1:parameter set
+void receiveEvent(int howMany);
+struct eeprom_struct
+{ // EEPROMで利用する型を宣言
+  char host_ip[64];
+};
+String HOST_IP;
+
+struct para_d
+{                               //動作を規定するパラメータ
+  unsigned int cxl;             // 0:local 1:cloud
+  String host_ip;               // host ip
+  unsigned int com_period;      //通信周期
+  unsigned int sampling_period; //サンプリング周期
+  unsigned int ave_flag;        // 0:測定値をそのまま出力 1:通信周期での平均
+};
+para_d PARA;
+// const char *pubTopic = "pub01"; //クラウドデバッグ環境用
+const char *pubTopic = "pub_prod"; //クラウド製品版
+
+// #define COMM_INTERVAL (600000)    //通信インターバル 10分 for レックス
+#define COMM_INTERVAL (60000) //通信インターバル 1分
+
+#define MCP3425_address 0x68 // 0x68に固定されている
+//#define configRegister 0b10011000 //16bit 15sps PGA x1    for 75Ω
+// #define configRegister 0b10011011 //16bit 15sps PGA x8   for 10Ω
+#define configRegister 0b10001011 // 16bit,one shot,PGA x8   for 10Ω
+#define INTERVAL (1000)
+#define RECEIVE_TIMEOUT (5000)
+#define SLOPE 0.00088 // adcの値を電流値に変換する係数
+#define SDA_PIN 21
+#define SCL_PIN 22
+// #define SDA_PIN_NG 26
+// #define SCL_PIN_NG 25
+
+// String rootCA_file = "/AmazonRootCA1.pem";        // rootCA
+// String certificate_file = "/certificate.pem.crt"; // certificate
+// String privateKey_file = "/private.pem.key";      // private
+String ap_ssid = "TIC-AP";   // ESP32 softAP SSID
+String ap_pass = "12345678"; // ESP32 softAP password
+const String MSC = "/msc.txt";
+IPAddress LIP; // Local IP address
+WiFiServer server(80);
+WiFiClient client;
+uint8_t ssid_num;
+String ssid_rssi_str[30];
+String ssid_str[30];
+String Selected_SSID_str;
+String Sel_SSID_PASS_str;
+String CLIENT_ID; // mac addressをユニークなIDとして使用
+uint32_t scanLastTime = 0;
+boolean First_Scan_Set = true;
+boolean CMD_RECEIVE_FLAG = false;
+#define XAP_BTN 35 // io番号で指定する(pin no.ではない)
+#define STATUS_LED 32
+#define CXS 25           // 1:通常 0:セッティング
+#define BZ_ON 5          // 1:ブザーオン 0:オフ
+boolean AP_MODE = false; // true:アクセスポイントモード false:通常モード
+
+// boolean tsf = false; //本体起動から10秒経ったらtrueにする
+
+/* HTMLページ */
+const char *strHtml = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Calibration</h1>
+    <p style='color:brown; font-weight: bold'>CONVERTED DATA / PARAMETER(LARGE/SMALL)</p>
+    <p><table>
+      <tr><th>CHANNEL</th><th>DATA</th><th>LARGE</th><th>SMALL</th></tr>
+      <tr><td>CH1</td><td><span id="val_ch1" class="value">%CH1%</span></td><td><span id="pl_ch1" class="value">%PL_CH1%</span></td><td><span id="ps_ch1" class="value">%PS_CH1%</span></td></tr>
+      <tr><td>CH2</td><td><span id="val_ch2" class="value">%CH2%</span></td><td><span id="pl_ch2" class="value">%PL_CH2%</span></td><td><span id="ps_ch2" class="value">%PS_CH2%</span></td></tr>
+      <tr><td>CH3</td><td><span id="val_ch3" class="value">%CH3%</span></td><td><span id="pl_ch3" class="value">%PL_CH3%</span></td><td><span id="ps_ch3" class="value">%PS_CH3%</span></td></tr>
+      <tr><td>CH4</td><td><span id="val_ch4" class="value">%CH4%</span></td><td><span id="pl_ch4" class="value">%PL_CH4%</span></td><td><span id="ps_ch4" class="value">%PS_CH4%</span></td></tr>
+    </table></p>
+    <p style='color:brown; font-weight: bold'>Scaling Parameter Set</p>
+    <form name='paremeter_set'>
+      <p><table>
+        <tr><th sytle='width: 30px'>CH</th><th>LARGE/SMALL</th><th>PARAMETER</th><th style='border-top-style:none'></th></tr>
+        <tr><td sytle='width: 30px'>
+          <select name="channel_number">
+          <option value="1">CH1</option>
+          <option value="2">CH2</option>
+          <option value="3">CH3</option>
+          <option value="4">CH4</option>
+          </select>
+        </td>
+        <td sytle='width: 30px'>
+          <select name="large_small">
+          <option value="large">LARGE</option>
+          <option value="small">SMALL</option>
+          </select>
+        </td>
+        <td><input type='text' name='conv_param'></td><td><button type='submit' name='param_submit' value='send' style='background-color:#AFA;'>Set</button></td></tr>
+      </table></p>
+      <button type='submit' name='unit_reset' value='send' style='background-color:#FAF;'>UNIT RESET</button>
+    </form>
+    <br>
+    <a href='/' style='color:navy; font-size:20px;'>WiFi SET</a>
+  </body>
+  <script>
+    var get_meas_param = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let val = this.responseText.split(',');
+          document.getElementById("val_ch1").innerHTML = val[0];
+          document.getElementById("pl_ch1").innerHTML = val[1];
+          document.getElementById("ps_ch1").innerHTML = val[2];
+          document.getElementById("val_ch2").innerHTML = val[3];
+          document.getElementById("pl_ch2").innerHTML = val[4];
+          document.getElementById("ps_ch2").innerHTML = val[5];
+          document.getElementById("val_ch3").innerHTML = val[6];
+          document.getElementById("pl_ch3").innerHTML = val[7];
+          document.getElementById("ps_ch3").innerHTML = val[8];
+          document.getElementById("val_ch4").innerHTML = val[9];
+          document.getElementById("pl_ch4").innerHTML = val[10];
+          document.getElementById("ps_ch4").innerHTML = val[11];
+        }
+      };
+      xhr.open("GET", "/get_meas_param", true);
+      xhr.send(null);
+    }
+    setInterval(get_meas_param, 1000);
+  </script>
+</html>)rawliteral";
+
+// AWS IoT Setting
+const char *awsEndpoint = "a24t2172v8g5ia-ats.iot.ap-northeast-1.amazonaws.com";
+const int awsPort = 8883;
+WiFiClientSecure httpsClient;
+PubSubClient mqttClient(httpsClient);
+
+boolean first_flag = true; //最初のループであることを示すフラグ
+unsigned long msum = 0;    // 10分間の合計
+unsigned int mcnt = 0;     // 10分間に何回ループしたか
+
+hw_timer_t *timer = NULL;    // watchdog timer用
+const int wdtTimeout = 6000; // time in ms to trigger the watchdog
+
+//文字列がfloatかチェック(0-9 & "."が一つ)
+boolean is_float(String str)
+{
+  int val;
+  int cnt = 0;
+  for (int i = 0; i < str.length(); i++)
+  {
+    val = str.charAt(i);
+    if (val == 0x2e)
+    {
+      cnt++;
+    }
+    else if (val < 0x30 || val > 0x39)
+    {
+      return false;
+    }
+  }
+  if (cnt <= 1)
+  {
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+
+//文字列が0-9かチェック
+boolean is_number(String str)
+{
+  int val, i;
+  for (i = 0; i < str.length(); i++)
+  {
+    val = str.charAt(i) - 0x30;
+    if (val < 0 || val > 9)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+// 分割数 = 分割処理(文字列, 区切り文字, 配列)
+// 返り値:分割数 エラーの場合は-1
+int split(String data, char delimiter, String *dst, int max)
+{
+  int index = 0;
+  int datalength = data.length();
+  int snum = sizeof(dst);
+  for (int i = 0; i < datalength; i++)
+  {
+    char tmp = data.charAt(i);
+    if (tmp == delimiter)
+    {
+      if (++index >= max) //渡された配列数より分割数が多くなったら
+      {
+        return -1;
+      }
+    }
+    else
+      dst[index] += tmp;
+  }
+  return (index + 1);
+}
+//正常なipアドレスかチェックする
+boolean chk_host_ip()
+{
+  int i, tmp;
+  String dst[4];
+  i = split(PARA.host_ip, '.', dst, 4);
+  if (i != 4) //.で4つに区切れていなければ
+  {
+    return false;
+  }
+  for (i = 0; i < 4; i++)
+  {
+    if (!is_number(dst[i])) // 0～9の文字でなければ
+    {
+      return false;
+    }
+  }
+  for (i = 0; i < 4; i++)
+  {
+    tmp = dst[i].toInt();
+    if (tmp > 255 || tmp < 0) // 0-255の範囲に入っていなければ
+    {
+      return false;
+    }
+  }
+  return true; //正常なIPアドレスだとtrue
+}
+
+//正常なアドレスかチェックする
+// mで4つに区切れていて、それぞれが数値ならtrue,そうでなければfalse
+boolean chk_para(void)
+{
+  int i, div;
+  String dst[4];
+  Serial.print(PARA.host_ip);
+  div = split(PARA.host_ip, 'm', dst, 4);
+  if (div == 4) // mで4つに区切れていれば
+  {
+    for (i = 0; i < 4; i++)
+    {
+      if (!is_number(dst[i])) // 0～9の文字でなければ
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+
+// host ip の項目に入っている文字列がm区切りで、4つの数値が入っていれば、その値をPARAに設定する
+//フォーマット
+//通信周期mサンプリング周期mアベレージフラグ
+// host ipならeepromへ保存
+// void set_para_ip(void)
+// {
+//   int i, div;
+//   String dst[4];
+//   if (chk_para()) //パラメータとして設定可能なら
+//   {
+//     div = split(PARA.host_ip, 'm', dst, 4);
+//     PARA.com_period = dst[0].toInt();
+//     PARA.sampling_period = dst[1].toInt();
+//     PARA.ave_flag = dst[2].toInt();
+//     PARA.cxl = dst[3].toInt();
+//     write_para_file();
+//     Serial.println("Parameter set");
+//   }
+//   else if (chk_host_ip()) // host ipとして正常なら
+//   {
+//     eeprom_struct buf;                         //メモリ上に実体を作成
+//     PARA.host_ip.toCharArray(buf.host_ip, 17); // Stringをcharに
+//     EEPROM.put<eeprom_struct>(0, buf);         //変数に値を書き込み
+//     EEPROM.commit();                           // EEPROMに書き込み
+//     Serial.println("host ip set");
+//   }
+// }
+
+void IRAM_ATTR resetModule()
+{
+  esp_restart();
+}
+
+void setup_awsiot()
+{
+  httpsClient.setCACert(rootCA);
+  httpsClient.setCertificate(certificate);
+  httpsClient.setPrivateKey(privateKey);
+  mqttClient.setServer(awsEndpoint, awsPort);
+  mqttClient.setCallback(mqttCallback);
+}
+
+void connect_awsiot()
+{
+  while (!mqttClient.connected())
+  {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    // CLIENT_ID += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (mqttClient.connect(CLIENT_ID.c_str()))
+    {
+      Serial.println("connected");
+    }
+    else
+    {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying＿
+      delay(5000);
+    }
+  }
+}
+
+void mqttCallback(char *topic, byte *payload, unsigned int length)
+{
+  Serial.print("Received. topic=");
+  Serial.println(topic);
+  for (int i = 0; i < length; i++)
+  {
+    Serial.print((char)payload[i]);
+  }
+  Serial.print("\n");
+}
+
+// PARAをファイルに書き出す
+// boolean write_para_file(void)
+// {
+//   File fp = SPIFFS.open(MSC.c_str(), "w");
+//   if (!fp || fp.isDirectory())
+//   {
+//     Serial.println("SPIFFS Failed to open file for writing");
+//     return false;
+//   }
+//   else
+//   {
+//     fp.println(PARA.cxl);
+//     fp.println(PARA.com_period);
+//     fp.println(PARA.sampling_period);
+//     fp.println(PARA.ave_flag);
+//     fp.close();
+//   }
+// }
+
+// getで受け取ったpasswordに記号が含まれていた場合、ascii codeを元の記号に戻す
+String format_pass(String *pass_tmp)
+{
+  String stmp, stmp2, pw;
+  char ctmp[3];
+  int itmp;
+  pw = "";
+  for (int i = 0; i < pass_tmp->length(); i++)
+  {
+    stmp = pass_tmp->charAt(i);
+    if (stmp == "%")
+    {                                            //パスワードに%が含まれていたら
+      stmp2 = pass_tmp->substring(i + 1, i + 3); //% 以降の 2文字切り取り
+      i += 2;
+      stmp2.toCharArray(ctmp, 3);    // char型の配列へ変換
+      itmp = strtol(ctmp, NULL, 16); // 16進文字列を数値へ変換
+      ctmp[0] = itmp;
+      ctmp[1] = '\0';
+      stmp2 = ctmp;        // charの文字列をstringへ変換
+      pw += String(stmp2); // 16進数のasciiコードをstringに変換した文字をパスワード文字列に追加
+    }
+    else
+    {
+      pw += stmp;
+    }
+  }
+  return pw;
+}
+
+/* 計測処理ロジック */
+String get_meas_param()
+{
+  String str = "";
+  String dst[14];       // split()を呼ぶ前に初期化しなければならない
+  if (CMD_RECEIVE_FLAG) //コマンドを受け取っていたら
+  {
+    CMD_RECEIVE_FLAG = false;
+    int itmp = split(SERIAL_BUF, ',', dst, 14);
+    if (itmp != 14) // 14に分割されなければコマンドではないと判断
+    {
+      return "";
+    }
+    for (itmp = 1; itmp <= 12; itmp++) //先頭の","を除いてajaxにわたす文字列作成
+    {
+      str += dst[itmp];
+      str += ","; //最後に","があってもajaxで無視される
+    }
+    return str;
+  }
+  else //コマンドを受け取っていなければ
+  {
+    return PRE_SERIAL_BUF; //前回のコマンドを返す
+  }
+}
+
+void wifi_access_point()
+{
+  String html_res_head = "HTTP/1.1 200 OK\r\n";
+  html_res_head += "Content-type:text/html\r\n";
+  html_res_head += "Connection:close\r\n\r\n";
+  String html_tag1 = "<!DOCTYPE html>\r\n<html>\r\n<head>\r\n";
+  html_tag1 += "<meta name='viewport' content='initial-scale=1.5'>\r\n";
+  html_tag1 += "</head>\r\n\r\n";
+  // html_tag1 += "<body style='background:#000; color:#fff; font-size:100%;'>\r\n";
+  html_tag1 += "<body style='background:#fff; color:#000; font-size:100%;'>\r\n";
+  html_tag1 += "WiFi SET<br>\r\n";
+  html_tag1 += "SSID";
+  String html_tag2 = "\r\n</body>\r\n</html>\r\n\r\n";
+
+  String html_res_head2 = "HTTP/1.1 200 OK\r\n";
+  html_res_head2 += "Content-type:text/plain\r\n";
+  html_res_head2 += "Connection:close\r\n\r\n";
+  client = server.available();
+  String html_res_head404 = "HTTP/1.1 404 NOT Found\r\n";
+  html_res_head404 += "Content-type:text/html\r\n";
+  html_res_head404 += "Connection:close\r\n\r\n";
+
+  if (client)
+  {
+    Serial.println("new client");
+    String req_str = "";
+    String pass_tmp; // password temporary
+    while (client.connected())
+    {
+      while (client.available())
+      {
+        req_str = client.readStringUntil('\n');
+        if (req_str.indexOf("\r") == 0)
+          break;
+        Serial.println(req_str);
+        Serial.println(PAGE_NUM);
+        if (req_str.indexOf("GET /param_set/?") >= 0)
+        {
+          Serial.println("param_set");
+          PAGE_NUM = 1;
+          int16_t idx_ch_num = req_str.indexOf("channel_number=");
+          int16_t getTXT_u_reset = req_str.indexOf("unit_reset");
+          if (getTXT_u_reset > 0)
+          {
+            esp_restart();
+          }
+          if (idx_ch_num > 0)
+          {
+            int16_t idx_large_small = req_str.indexOf("&large_small=");
+            int16_t idx_conv_param = req_str.indexOf("&conv_param=");
+            String s_ch_num = req_str.substring(idx_ch_num + 15, idx_large_small);
+            String s_large_small = req_str.substring(idx_large_small + 13, idx_conv_param);
+            String s_conv_param = req_str.substring(idx_conv_param + 12, req_str.indexOf("&param_submit"));
+            // Serial.println(s_ch_num);
+            // Serial.println(s_param_large);
+            // Serial.println(s_param_small);
+            if (is_float(s_conv_param)) // float変換できるなら
+            {
+              Serial.print("PARAM_SET@");
+              Serial.print(s_ch_num);
+              Serial.print(",");
+              Serial.print(s_large_small);
+              Serial.print(",");
+              Serial.println(s_conv_param);
+              Serial2.print("PARAM_SET@");
+              Serial2.print(s_ch_num);
+              Serial2.print(",");
+              Serial2.print(s_large_small);
+              Serial2.print(",");
+              Serial2.println(s_conv_param);
+              // Serial1.print("PARAM_SET@");
+              // Serial1.print(s_ch_num);
+              // Serial1.print(",");
+              // Serial1.print(s_large_small);
+              // Serial1.print(",");
+              // Serial1.println(s_conv_param);
+            }
+            else
+            {
+              Serial.println("param error");
+            }
+          }
+        }
+        else if (req_str.indexOf("GET /param_set ") >= 0)
+        {
+          PAGE_NUM = 1;
+          client.print(html_res_head);
+          client.print(strHtml);
+          delay(10);
+          client.stop();
+        }
+        else if (req_str.indexOf("GET /get_meas_param") >= 0)
+        {
+          PAGE_NUM = 1;
+          client.print(html_res_head2);
+          String stmp = get_meas_param();
+          client.print(stmp.c_str());
+          Serial.print(stmp.c_str());
+          delay(10);
+          client.stop();
+        }
+        else if (req_str.indexOf("GET / ") >= 0)
+        {
+          PAGE_NUM = 0;
+          Serial.println("--------------- GET Request Receive from Clinet");
+          while (client.available())
+          {
+            char c = client.read();
+            Serial.write(c);
+          }
+          Serial.println("--------------- GET Request Receive Finish");
+          html_send(false, "Connection close", "Connection close", "#FFF", html_res_head, html_tag1, html_tag2);
+
+          delay(10);
+          client.stop();
+          Serial.println("client disonnected");
+          delay(10);
+          req_str = "";
+        }
+        else if (req_str.indexOf("GET /?") >= 0)
+        {
+          PAGE_NUM = 0;
+          Serial.println("--------------- SUBMIT Receive from Clinet");
+          int16_t getTXT_pass = req_str.indexOf("pass1=");
+          int16_t getTXT_select = req_str.indexOf("ssid_select=");
+          int16_t getTXT_host_ip = req_str.indexOf("host_ip=");
+          int16_t getTXT_close = req_str.indexOf("connection_close=");
+          int16_t getTXT_u_reset = req_str.indexOf("unit_reset");
+          if (getTXT_u_reset > 0)
+          {
+            esp_restart();
+          }
+          if (getTXT_select > 0)
+          {
+            Selected_SSID_str = req_str.substring(getTXT_select + 12, req_str.indexOf("&pass1"));
+          }
+          if (PARA.cxl == 0) //ローカルの場合,SSIDとhost ip取得
+          {
+            if (getTXT_pass > 0)
+              pass_tmp = req_str.substring(getTXT_pass + 6, req_str.indexOf("&host_ip")); // ssid取得
+            // Sel_SSID_PASS_str = req_str.substring(getTXT_pass + 6, req_str.indexOf("&host_ip"));
+            Sel_SSID_PASS_str = "ck8m7ah5v6dkw";
+            if (getTXT_host_ip > 0)
+            {
+              PARA.host_ip = req_str.substring(getTXT_host_ip + 8, req_str.indexOf("&ssid_sel_submit"));
+            }
+          }
+          else //クラウドの場合、SSID取得のみ
+          {
+            if (getTXT_pass > 0)
+              pass_tmp = req_str.substring(getTXT_pass + 6, req_str.indexOf("&ssid_sel_submit")); // ssid取得
+          }
+          Sel_SSID_PASS_str = format_pass(&pass_tmp); //アスキーコードを記号に戻す
+          Serial.println(Sel_SSID_PASS_str);
+          //コマンド抽出
+          if (Sel_SSID_PASS_str == "`@0") //`@0 なら(local指定なら)
+          {
+            Serial.println("to local");
+            PARA.cxl = 0;
+            // write_para_file();
+            esp_restart();
+          }
+          else if (Sel_SSID_PASS_str == "```") //``` なら(パラメータ表示なら)
+          {
+            Serial.println("print PARA");
+            String param2;
+            if (PARA.ave_flag == 1)
+            {
+              param2 = "Average";
+            }
+            else
+            {
+              param2 = "Normal";
+            }
+            String param = "Communication period:" + String(PARA.com_period) + "<BR>" +
+                           "Sampling period:" + String(PARA.sampling_period) + "<BR>" +
+                           "Averrage/Normal:" + param2 + "<BR>" +
+                           "MAC ADDRESS:" + CLIENT_ID;
+            html_send(false, "print PARA", param, "#FF0", html_res_head, html_tag1, html_tag2);
+            break;
+          }
+          else if (Sel_SSID_PASS_str == "`@r") //`@r なら動作確認用RUT240セット
+          {
+            Serial.println("wifi RUT240");
+            WiFi.begin("RUT240_8B10", "k5N0XpQb");
+            delay(1000); // wifi_connect()でWiFi.begin()を呼ぶため、すぐに呼ばれないようにウェイトをいれる
+            wifi_connect();
+            esp_restart();
+          }
+          else if (Sel_SSID_PASS_str == "`@b") //`@b なら動作確認用wifiセット
+          {
+            Serial.println("wifi Buffalo");
+            WiFi.begin("Buffalo-G-FBF8", "ck8m7ah5v6dkw");
+            delay(1000); // wifi_connect()でWiFi.begin()を呼ぶため、すぐに呼ばれないようにウェイトをいれる
+            wifi_connect();
+            esp_restart();
+          }
+          else
+          {
+            Serial.println("no match");
+          }
+          if (getTXT_close < 0)
+          {
+            Serial.printf("Selected_SSID_str = %s\r\n", Selected_SSID_str.c_str());
+            Serial.printf("Sel_SSID_PASS_str = %s\r\n", Sel_SSID_PASS_str.c_str());
+
+            while (client.available())
+            {
+              char c = client.read();
+              Serial.write(c);
+            }
+
+            Serial.println("-------------- SUBMIT Request Receive Finish");
+            // if (PARA.cxl == 0) //ローカルモードなら
+            // {
+            //   set_para_ip(); //パラメータまたはHOST IPセット
+            //   if (chk_para())
+            //   {                //パラメータなら
+            //     esp_restart(); //リセット
+            //   }
+            //   else if (!chk_host_ip()) //パラメーターでもhost ipでもなければ
+            //   {
+            //     html_send(false, "disconnected", "INVALID HOST IP", "#F00", html_res_head, html_tag1, html_tag2);
+            //     break;
+            //   }
+            // }
+            delay(500); // Important! This delay is necessary to connect to the Access Point.
+
+            // Selected_SSID_str = "Buffalo-G-1A00";
+            // Sel_SSID_PASS_str = "diikr7csk5cxf";
+            WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
+            uint32_t timeout = millis();
+            while (1)
+            {
+              boolean exit_flag = false;
+              if (WiFi.status() != WL_CONNECTED)
+              {
+                Serial.println("no connect");
+                delay(1000);
+                if (millis() - timeout > 10000)
+                {
+                  html_send(false, Selected_SSID_str, "TIME OUT", "#F00", html_res_head, html_tag1, html_tag2);
+                  exit_flag = true;
+                }
+              }
+              else
+              {
+                Serial.println("connect");
+                LIP = WiFi.localIP();
+                Serial.println("\r\nWiFi connected");
+                Serial.print("Local IP address: ");
+                Serial.println(LIP);
+                Serial.printf("\r\n-----------%s Connected!\r\n", Selected_SSID_str.c_str());
+                html_send(true, Selected_SSID_str, "Set OK! Push RESET<br>", "#00F", html_res_head, html_tag1, html_tag2);
+                exit_flag = true;
+              }
+              if (exit_flag)
+              {
+                break;
+              }
+            }
+          }
+          else
+          {
+            html_send(false, "---", "Closed!", "#F00", html_res_head, html_tag1, html_tag2);
+            WiFi.disconnect(false); // false=WiFi_ON , true=WiFi_OFF
+          }
+
+          delay(10);
+          client.stop();
+          Serial.println("client disonnected");
+          delay(10);
+          req_str = "";
+        }
+        else if (req_str.indexOf("GET /favicon") >= 0)
+        {
+          PAGE_NUM = 0;
+          favicon_response();
+          req_str = "";
+        }
+        else
+        {
+          client.print(html_res_head404);
+          client.print(strHtml);
+          delay(10);
+          client.stop();
+        }
+      }
+    }
+  }
+}
+
+void html_send(boolean sta_connected, String message1, String message2, String color, String html_res_head, String html_tag1, String html_tag2)
+{
+  client.print(html_res_head);
+  client.print(html_tag1);
+  // client.print(HTML_Select_Box_str("!xxxx", message1));
+  client.print(HTML_Select_Box_str(message1));
+  client.printf("<p style='color:%s; font-size:80%%'>%s</p>\r\n", color.c_str(), message2.c_str()); //%%と重ねなければならない
+  if (sta_connected == true)
+  {
+    client.print("<span style='font-size:80%'>IP = ");
+    client.print(LIP);
+    client.print("<br>");
+    client.print("</span>\r\n");
+  }
+  client.print(html_tag2);
+  Serial.print(html_res_head);
+  Serial.print(html_tag1);
+  // Serial.print(HTML_Select_Box_str("!xxxx", message1));
+  Serial.print(HTML_Select_Box_str(message1));
+  Serial.printf("<p style='color:%s; font-size:80%%'>%s</p>\r\n", color.c_str(), message2.c_str());
+  if (sta_connected == true)
+  {
+    Serial.print("<span style='font-size:80%'>IP = ");
+    Serial.print(LIP);
+    Serial.print("</span>\r\n");
+  }
+  Serial.print(html_tag2);
+}
+//*******************************************
+String HTML_Select_Box_str(String Sel_Ssid)
+{
+  // String HTML_Select_Box_str(String button_id, String Sel_Ssid){
+  String str = "";
+  String selected_str = "";
+  str += "<form name='F_ssid_select'>\r\n";
+  str += "  <select name='ssid_select'>\r\n";
+  for (int i = 0; i < ssid_num; i++)
+  {
+    if (Selected_SSID_str == ssid_str[i])
+    {
+      selected_str = " selected";
+    }
+    else
+    {
+      selected_str = "";
+    }
+    str += "    <option value=" + ssid_str[i] + selected_str + ">" + ssid_rssi_str[i] + "</option>\r\n";
+  }
+  str += "</select><br>\r\n";
+  str += "Password<br><input type='password' name='pass1'>\r\n";
+  // str += "Password<br><input type='text' name='pass1' value='diikr7csk5cxf'>\r\n"; //デバッグ用初期値
+  // str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; //デバッグ用初期値
+  if (PARA.cxl == 0) //ローカル版ならサーバーIPの入力も行う
+  {
+    str += "<br>";
+    str += "HOST IP<br><input type='text' name='host_ip' value=";
+    str += PARA.host_ip;
+    str += ">\r\n";
+  }
+  // str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=document.F_ssid_select.ssid_select.value;'>Start connection</button>\r\n";
+  str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;'>SET</button>\r\n";
+  str += "<br>";
+  str += "<br><button type='submit' name='unit_reset' value='send' style='background-color:#FAF;'>UNIT RESET</button>\r\n";
+  str += "</form><br>\r\n";
+  str += "<br>";
+  str += "<a href=\"/param_set/\" style=\"color:navy\">Calibration</a>";
+  // str += "<form name='F_connection_close'>\r\n";
+  // str += "  <button type='submit' name='connection_close' value='send' style='background-color:#FAA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=\"Connection close\";'>Connection Close</button>\r\n";
+  // str += "</form>\r\n";
+  // str += "<br>  Selected SSID<br><span id='ssid_sel_txt'  style='font-size:80%;'>";
+  // str += "<br><span id='ssid_sel_txt'  style='font-size:80%;'>";
+
+  // str += Sel_Ssid;
+  // str += "Selected SSID" + Sel_Ssid;
+  str += "</span>\r\n";
+  return str;
+}
+void wifi_scan(uint32_t scan_interval)
+{
+  if ((First_Scan_Set == true) || ((millis() - scanLastTime) > scan_interval))
+  {
+    Serial.println("scan start");
+
+    // WiFi.scanNetworks will return the number of networks found
+    ssid_num = WiFi.scanNetworks();
+    if (ssid_num > 30)
+      ssid_num = 30;
+    Serial.println("scan done\r\n");
+    if (ssid_num == 0)
+    {
+      Serial.println("no networks found\r\n");
+    }
+    else
+    {
+      Serial.printf("%d networks found\r\n\r\n", ssid_num);
+      for (int i = 0; i < ssid_num; ++i)
+      {
+        ssid_str[i] = WiFi.SSID(i);
+        String wifi_auth_open = ((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
+        ssid_rssi_str[i] = ssid_str[i] + " (" + WiFi.RSSI(i) + "dBm)" + wifi_auth_open;
+        Serial.printf("%d: %s\r\n", i, ssid_rssi_str[i].c_str());
+        delay(10);
+      }
+    }
+    Serial.println("");
+    scanLastTime = millis();
+    First_Scan_Set = false;
+  }
+}
+//*******************************************
+void favicon_response()
+{
+  Serial.println(F("-----------------------Favicon GET Request Received"));
+  while (client.available())
+  {
+    Serial.write(client.read());
+  }
+
+  client.print(F("HTTP/1.1 404 Not Found\r\n"));
+  client.print(F("Connection:close\r\n\r\n"));
+
+  delay(10);
+  client.stop();
+  delay(10);
+
+  Serial.println(F("-----------------Client.stop (by Favicon Request)"));
+}
+
+//設定用ファイルからパラメータを読み取る
+// boolean read_para_file(void)
+// {
+//   //動作モード読み込み
+//   File fp = SPIFFS.open(MSC.c_str(), "r");
+//   if (!fp || fp.isDirectory())
+//   {
+//     Serial.println("SPIFFS Failed to open file for reading");
+//     return false;
+//   }
+//   else
+//   {
+//     String readstr;
+//     int cnt = 0;
+//     while (1)
+//     {
+//       readstr = fp.readStringUntil('\n'); //改行まで１行読み出し
+//       readstr.trim();
+//       if (readstr == "")
+//       {
+//         break;
+//       }
+//       else
+//       {
+//         switch (cnt++)
+//         {
+//         case 0:
+//           PARA.cxl = readstr.toInt(); //クラウド or ローカル
+//           Serial.println(PARA.cxl);
+//           break;
+//         case 1:
+//           PARA.com_period = readstr.toInt(); //通信周期
+//           break;
+//         case 2:
+//           PARA.sampling_period = readstr.toInt(); //サンプリング周期
+//           break;
+//         case 3:
+//           PARA.ave_flag = readstr.toInt(); // 1:通信周期での平均 0:測定値をそのまま出力
+//         default:
+//           break;
+//         }
+//       }
+//     }
+//     fp.close();
+//     return true;
+//   }
+// }
+
+//パラメータをシリアル表示
+void print_para(void)
+{
+  //動作モードを表示
+  Serial.println("================================");
+  Serial.print("Cloud/Local:");
+  if (PARA.cxl == 0)
+  {
+    Serial.println("Local");
+    Serial.print("host ip:");
+    Serial.println(PARA.host_ip);
+  }
+  else
+    Serial.println("Cloud");
+
+  Serial.print("communication period:");
+  Serial.println(PARA.com_period);
+  Serial.print("sampling period:");
+  Serial.println(PARA.sampling_period);
+  Serial.print("Averrage/Normal:");
+  if (PARA.ave_flag == 1)
+  {
+    Serial.println("Average");
+  }
+  else
+  {
+    Serial.println("Normal");
+  }
+  Serial.println("================================");
+}
+
+void connect_local_host(void) //つながらなかった時リセットがかかるコードをいれること 2021/10/18
+{
+  if (!client.connect(PARA.host_ip.c_str(), 5000))
+  {
+    Serial.println("connection failed");
+    int i = 0;
+    while (WiFi.status() != WL_CONNECTED)
+    {
+      Serial.println(i++);
+      if (i == 3)
+      {
+        WiFi.begin();
+        i = 0;
+      }
+      else
+        delay(1000); //ウェイト無しで早くWiFi.status()を見に行くと全然接続状態にならない
+    }
+    return;
+  }
+}
+
+void send_local_host(char *SC_BUF)
+{
+  String path;
+  String body;
+  String dt;
+  String payload;
+  connect_local_host();
+  Serial.print("Send data: ");
+  Serial.println(SC_BUF);
+  path = "/ds_420ma";
+  body = "{\"DEVICE_ID\": \"" + CLIENT_ID + "\",\"ch1\": \"" + String(SC_BUF) + "\"}";
+  payload = "POST " + path + " HTTP/1.1\r\n" +
+            "Content-Type: application/json\r\n" +
+            "Content-Length: " + body.length() + "\r\n" +
+            "Connection: close\r\n\r\n" + body;
+  client.print(payload.c_str());
+}
+
+void aws_mqtt_publish(char *str)
+// void aws_mqtt_publish(String pub_msg)
+{
+  int tmp = 0;
+  Serial.print("mqtt:");
+  Serial.println(tmp++);
+  aws_connect();
+  mqttClient.loop();
+  // sprintf(pubMessage, "{\"ch1\": \"%s\"}", str);
+  Serial.print("Publishing:");
+  // Serial.println(pubTopic);
+  Serial.println(str);
+  // strcpy(str, "{\"id\":\"rx01\",\"ch1\":\"5@10@5.0@9.0@9.5@1@21@15.5\",\"ch2\":\"5.5@1.1@8.5@9.9@19.5@3@23@18.0\",\"ch3\":\"3.3\",\"ch4\": \"4.4\"}");
+  Serial.println(str);
+  mqttClient.publish(pubTopic, str);
+  Serial.println("Published.");
+}
+// WiFiに接続しにいって、8秒間接続できなければ本体リセット
+void wifi_connect(void)
+{
+  int i = 0;
+  timerAlarmWrite(timer, 8000000, false); //ウォッチドッグタイマ8秒セット
+  timerWrite(timer, 0);                   // reset timer (feed watchdog)
+  timerAlarmEnable(timer);                //ウォッチドッグタイマ有効化
+  WiFi.begin();
+  while (WiFi.status() != WL_CONNECTED)
+  { // wifiが切れていたらつなぎに行く
+    Serial.println("WiFi connecting");
+    Serial.println(i++);
+    if (i == 3) // 3回WiFiに接続できなければ
+    {
+      if (digitalRead(XAP_BTN) == 0 && AP_MODE == false) // APボタンが押されている&&APモードでなければ
+      {
+        esp_restart(); // reset
+      }
+      WiFi.begin(); //再接続(flashからssid,passwordを読みに行くのでパラメータは必要なし)
+      i = 0;
+    }
+    else
+      delay(1000); //ウェイト無しで早くWiFi.status()を見に行くと全然接続状態にならない
+  }
+  timerAlarmDisable(timer); //ウォッチドッグタイマ無効化
+}
+
+// awsに接続しにいって、21秒間接続できなければ本体リセット
+void aws_connect(void)
+{
+  timerAlarmWrite(timer, 21000000, false); //ウォッチドッグタイマ21秒セット
+  timerWrite(timer, 0);                    // reset timer (feed watchdog)
+  timerAlarmEnable(timer);                 //ウォッチドッグタイマ有効化
+  if (!mqttClient.connected())
+  { // awsが切れていたら
+    // Serial.println("aws connecting");
+    Serial.println("connecting");
+    connect_awsiot(); //接続する
+  }
+  timerAlarmDisable(timer); //ウォッチドッグタイマ無効化
+}
+
+void setup()
+{
+  Wire.begin(); //使用しないが接続されているの
+  Serial.begin(115200);
+  Serial2.begin(115200);
+  // Serial1.begin(115200, SERIAL_8N1, RX1_PIN, TX1_PIN); // commとの通信
+  //  Serial2.begin(115200);
+  // bool success = WireSlave.begin(SDA_PIN, SCL_PIN, I2C_SLAVE_ADDR); //うまく行けば使う
+  // if (!success)
+  // {
+  //   Serial.println("I2C slave init failed");
+  //   while (1)
+  //     delay(100);
+  // }
+  // WireSlave.onReceive(receiveEvent);
+  // pinMode(SDA_PIN, INPUT_PULLUP);
+  // pinMode(SCL_PIN, INPUT_PULLUP);
+  // pinMode(SDA_PIN_NG, INPUT_PULLUP);
+  // pinMode(SCL_PIN_NG, INPUT_PULLUP);
+  // Wire.begin(); //I2Cマスターとして動作
+  uint8_t mac0[6];
+  esp_efuse_mac_get_default(mac0); // macアドレス読み取り
+  String stmp;
+  for (int i = 0; i < 6; i++)
+  {
+    stmp = String(mac0[i], HEX);
+    if (stmp.length() < 2)
+      stmp = "0" + stmp;
+    CLIENT_ID += stmp;
+    if (i < 5)
+    {
+      CLIENT_ID += "-";
+    }
+  }
+  Serial.println("");
+  Serial.println(CLIENT_ID);
+
+  // if (!SPIFFS.begin())
+  // {
+  //   Serial.println("SPIFFS failed, or not present");
+  //   return;
+  // }
+  // if (!read_para_file()) // msc.txtよりパラメータを読み取りできなければ
+  // {
+  PARA.cxl = 1; //初期値設定
+  PARA.com_period = 600000;
+  PARA.sampling_period = 1000;
+  PARA.ave_flag = 1;
+  //   write_para_file(); // msc.txtに書き込み
+  // }
+  PARA.cxl = 1; //初期値設定
+  PARA.com_period = 600000;
+  PARA.sampling_period = 1000;
+  PARA.ave_flag = 1;
+  // eepromよりhost ipを読み取り、PARAへ入れる
+  EEPROM.begin(128);                 // EEPROM開始(サイズ指定)
+  eeprom_struct buf;                 //メモリ上に実体を作成
+  EEPROM.get<eeprom_struct>(0, buf); //実態変数にEEPROMの値を代入
+  PARA.host_ip = buf.host_ip;        // charをstringに変換
+  if (!chk_host_ip())                //正常なIPアドレスかチェック
+    PARA.host_ip = "192.168.11.11";  //異常ならデフォルトセット
+
+  print_para(); //パラメーター表示
+
+  //  setup_wifi();
+  pinMode(XAP_BTN, INPUT);     // ap button
+  pinMode(STATUS_LED, OUTPUT); // status led
+  pinMode(CXS, OUTPUT);        // 1:通常 0:セッティングモード
+  pinMode(BZ_ON, OUTPUT);      // 1:ON 0:OFF
+  digitalWrite(CXS, HIGH);
+  digitalWrite(BZ_ON, LOW);
+  // digitalWrite(BZ_ON, HIGH);
+  digitalWrite(STATUS_LED, LOW); // status led off
+  if (digitalRead(XAP_BTN) == 0) // APボタンが押されていたらアクセスポイントモードで起動
+  {
+    digitalWrite(STATUS_LED, HIGH);
+    AP_MODE = true;
+    // if (!SPIFFS.begin())
+    // {
+    //   Serial.println("SPIFFS failed, or not present");
+    //   return;
+    // }
+    WiFi.mode(WIFI_AP_STA); // AP mode and STA mode
+    WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str());
+    delay(100);
+    Serial.println("Setup done");
+
+    // server.on("/temperature", HTTP_GET, [](AsyncWebServerRequest *request)
+    //           { request->send_P(200, "text/plain", get_meas_param().c_str()); });
+    // server.on("/humidity", HTTP_GET, [](AsyncWebServerRequest *request)
+    //           { request->send_P(200, "text/plain", getHumidity().c_str()); });
+    server.begin();
+    Serial.println(F("Server started"));
+
+    scanLastTime = millis();
+  }
+  else //通常モードで起動
+  {
+    delay(10); //ウェイト無しで早くWiFi.status()を見に行くと全然接続状態にならない
+    // SPIFFS.begin(); // SPIFFS開始
+    //ウォッチドッグタイマ設定
+    timer = timerBegin(0, 80, true);                 // timer 0, div 80
+    timerAttachInterrupt(timer, &resetModule, true); // attach callback
+    wifi_connect();                                  // wifi接続
+    if (PARA.cxl == 1)                               //クラウドならaws接続
+    {
+      setup_awsiot();
+      aws_connect();
+    }
+    // readADC();  //最初のデータ取得のためad変換をスタートする
+    delay(100); //変換のため時間確保
+  }
+}
+
+void loop()
+{
+  if (digitalRead(XAP_BTN) == 0 && AP_MODE == false) // APボタンが押されている かつ APモードでなければ
+  {
+    esp_restart(); // reset
+  }
+  // Serial.println(digitalRead(XAP_BTN));
+  if (Serial2.available()) // 受信データがあるか？
+  {
+    char key = Serial2.read(); // 1文字読み込み
+    if (key == '\n')
+    {
+      if (SCB_CNT > 0)
+      {
+        SC_BUF[--SCB_CNT] = '\0'; //終端
+        SERIAL_BUF = String(SC_BUF);
+        SCB_CNT = 0;
+        if (!CMD_RECEIVE_FLAG)
+        {
+          CMD_RECEIVE_FLAG = true;
+          Serial.println(SERIAL_BUF);
+          PRE_SERIAL_BUF = SERIAL_BUF;
+        }
+      }
+    }
+    else
+    {
+      SC_BUF[SCB_CNT++] = key;
+    }
+  }
+  if (AP_MODE) //アクセスポイントモードなら
+  {
+    wifi_access_point();
+    digitalWrite(CXS, LOW);         //セッティングモード
+    digitalWrite(STATUS_LED, HIGH); // status led on
+    // Serial.println(PAGE_NUM);
+    if (PAGE_NUM == 0)
+    {
+      wifi_scan(30000);
+    }
+  }
+  else if (CMD_RECEIVE_FLAG) //コマンドを受け取っていたら
+  {
+    CMD_RECEIVE_FLAG = false;
+    // digitalWrite(CXS, HIGH);
+    String dst[26]; // split()を呼ぶ前に初期化しなければならない
+    int itmp = split(SC_BUF, ',', dst, 26);
+    Serial.println(itmp);
+    String pub_msg;
+    if (itmp == 26) //(VAL,AVE,L5,L10,L50,L90,L95,MAX,MIN,LEQ)x2 ,(VAL,AVE)x2 + 2(先頭と最後に","があるため)
+    {
+      for (itmp = 1; itmp <= 24; itmp++) //データが正常ならdst[1]からdst[24]に測定データが入っている
+      {
+        Serial.print(dst[itmp]);
+        Serial.print(" ");
+      }
+      Serial.println("");
+      String dt_ch1 = "";
+      String dt_ch2 = "";
+      for (itmp = 0; itmp < 8; itmp++)
+      {
+        dt_ch1 += dst[itmp + 3];
+        if (itmp < 7)
+        {
+          dt_ch1 += "@";
+        }
+      }
+      for (itmp = 0; itmp < 8; itmp++)
+      {
+        dt_ch2 += dst[itmp + 13];
+        if (itmp < 7)
+        {
+          dt_ch2 += "@";
+        }
+      }
+      SCB_CNT = 0;
+      // sbuf = "";
+
+      char st_ch1[200], st_ch2[200], st_ch3[10], st_ch4[10]; // mqtt送信用バッファ
+      char pub_msg[500];
+      dt_ch1.toCharArray(st_ch1, 200);
+      dt_ch2.toCharArray(st_ch2, 200);
+      // dst[1].toCharArray(st_ch1, 200);
+      // dst[11].toCharArray(st_ch2, 200);
+      dst[22].toCharArray(st_ch3, 10);
+      dst[24].toCharArray(st_ch4, 10);
+      sprintf(pub_msg, "{\"id\":\"rx01\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\"}", st_ch1, st_ch2, st_ch3, st_ch4);
+      // sprintf(pub_msg, "{\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\"}", st_ch1, st_ch2, st_ch3, st_ch4);
+      wifi_connect();              // wifiの接続がなければ接続しに行く
+      Serial2.println("ACK_COMM"); // test
+      if (PARA.cxl == 1)           //クラウドなら
+      {
+        aws_mqtt_publish(pub_msg);   // awsへ送信 送信できなければリセットがかかる
+        Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
+      }
+      else //ローカルなら
+      {
+        // send_local_host(SC_BUF);     //ホストへ転送
+        Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
+      }
+    }
+  }
+}
+
+// void receiveEvent(int howMany)
+// {
+//   while (1 < WireSlave.available()) // loop through all but the last byte
+//   {
+//     char c = WireSlave.read(); // receive byte as a character
+//     Serial.print(c);           // print the character
+//   }
+
+//   int x = WireSlave.read(); // receive byte as an integer
+//   Serial.println(x);        // print the integer
+// }
