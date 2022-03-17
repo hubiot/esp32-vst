@@ -64,7 +64,7 @@ String Selected_SSID_str;
 String Sel_SSID_PASS_str;
 String CLIENT_ID; // mac addressをユニークなIDとして使用
 uint32_t scanLastTime = 0;
-boolean First_Scan_Set = true;
+// boolean FIRST_SCAN_FLAG = true;  //外部変数だとfalseにセットしてもなぜかtrueに戻されてしまう　謎
 boolean CMD_RECEIVE_FLAG = false;
 #define XAP_BTN 35 // io番号で指定する(pin no.ではない)
 #define STATUS_LED 32
@@ -437,6 +437,7 @@ String get_meas_param()
 
 void wifi_access_point()
 {
+  static String pre_url;
   String html_res_head = "HTTP/1.1 200 OK\r\n";
   html_res_head += "Content-type:text/html\r\n";
   html_res_head += "Connection:close\r\n\r\n";
@@ -473,6 +474,7 @@ void wifi_access_point()
         Serial.println(PAGE_NUM);
         if (req_str.indexOf("GET /param_set/?") >= 0)
         {
+          pre_url = "GET /param_set/?";
           Serial.println("param_set");
           PAGE_NUM = 1;
           int16_t idx_ch_num = req_str.indexOf("channel_number=");
@@ -518,8 +520,9 @@ void wifi_access_point()
             }
           }
         }
-        else if (req_str.indexOf("GET /param_set ") >= 0)
+        else if (req_str.indexOf("GET /param_set") >= 0)
         {
+          pre_url = "GET /param_set/?";
           PAGE_NUM = 1;
           client.print(html_res_head);
           client.print(strHtml);
@@ -717,8 +720,15 @@ void wifi_access_point()
         }
         else
         {
+          // pre_url = "GET /param_set/?";
+          Serial.println("else");
+          Serial.print("req_str:");
+          Serial.print(req_str);
           client.print(html_res_head404);
-          client.print(strHtml);
+          if (pre_url.indexOf("GET /param_set") >= 0) // reloadすると"new clientst: 192.168.4.1"がreq_strに入るため、その前のURLを表示:w
+          {
+            client.print(strHtml);
+          }
           delay(10);
           client.stop();
         }
@@ -776,10 +786,10 @@ String HTML_Select_Box_str(String Sel_Ssid)
     str += "    <option value=" + ssid_str[i] + selected_str + ">" + ssid_rssi_str[i] + "</option>\r\n";
   }
   str += "</select><br>\r\n";
-  str += "Password<br><input type='password' name='pass1'>\r\n";
+  // str += "Password<br><input type='password' name='pass1'>\r\n";
   // str += "Password<br><input type='text' name='pass1' value='diikr7csk5cxf'>\r\n"; //デバッグ用初期値
-  // str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; //デバッグ用初期値
-  if (PARA.cxl == 0) //ローカル版ならサーバーIPの入力も行う
+  str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; //デバッグ用初期値
+  if (PARA.cxl == 0)                                                               //ローカル版ならサーバーIPの入力も行う
   {
     str += "<br>";
     str += "HOST IP<br><input type='text' name='host_ip' value=";
@@ -806,7 +816,10 @@ String HTML_Select_Box_str(String Sel_Ssid)
 }
 void wifi_scan(uint32_t scan_interval)
 {
-  if ((First_Scan_Set == true) || ((millis() - scanLastTime) > scan_interval))
+  static boolean FIRST_SCAN_FLAG = true;
+  Serial.println("wifi scan");
+  if ((FIRST_SCAN_FLAG == true) || ((millis() - scanLastTime) > scan_interval))
+  // if ((millis() - scanLastTime) > scan_interval)
   {
     Serial.println("scan start");
 
@@ -833,7 +846,7 @@ void wifi_scan(uint32_t scan_interval)
     }
     Serial.println("");
     scanLastTime = millis();
-    First_Scan_Set = false;
+    FIRST_SCAN_FLAG = false;
   }
 }
 //*******************************************
