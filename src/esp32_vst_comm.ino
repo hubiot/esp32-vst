@@ -156,6 +156,41 @@ const char *strHtml = R"rawliteral(
   </script>
 </html>)rawliteral";
 
+const char *ope_set_str = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Operation Setting</h1>
+    <p style='color:brown; font-weight: bold'>Measuring Period</p>
+    <form name>
+      <input type='text' name='meas_period_param'><label> sec  </label><button type='submit' name='meas_period_submit' value='send' style='background-color:#AFA;'>Set</button>
+    </form>
+    <br>
+    <p style='color:brown; font-weight: bold'>Averrage / Normal</p>
+    <form name>
+      <input type="radio" name="ave_normal" value="averrage"  checked="checked">Averrage
+      <input type="radio" name="ave_normal" value="normal">Normal
+      <button type='submit' name='ave_normal_submit' value='send' style='background-color:#AFA;'>Set</button>
+    </form>
+    <br>
+    <a href='/' style='color:navy; font-size:20px;'>WiFi SET</a>
+  </body>
+</html>)rawliteral";
+
 // AWS IoT Setting
 const char *awsEndpoint = "a24t2172v8g5ia-ats.iot.ap-northeast-1.amazonaws.com";
 const int awsPort = 8883;
@@ -437,7 +472,7 @@ String get_meas_param()
 
 void wifi_access_point()
 {
-  static String pre_url;
+  static String pre_url; // req_strにurl以外が入る場合がある。その場合は、前のurlを表示する
   String html_res_head = "HTTP/1.1 200 OK\r\n";
   html_res_head += "Content-type:text/html\r\n";
   html_res_head += "Connection:close\r\n\r\n";
@@ -526,6 +561,24 @@ void wifi_access_point()
           PAGE_NUM = 1;
           client.print(html_res_head);
           client.print(strHtml);
+          delay(10);
+          client.stop();
+        }
+        else if (req_str.indexOf("GET /ope_param_set/?") >= 0) // GET /ope_param_setより先に?付きを検出
+        {
+          pre_url = "GET /ope_param_set";
+          Serial.println("GET /param_set/?");
+          int16_t idx0 = req_str.indexOf("meas_period_param=");
+          String s_meas_priod = req_str.substring(idx0 + 18, req_str.indexOf("&meas_period_submit"));
+          Serial.println(s_meas_priod);
+        }
+        else if (req_str.indexOf("GET /ope_param_set") >= 0)
+        {
+          Serial.println("GET /ope_param_set");
+          pre_url = "GET /ope_param_set";
+          PAGE_NUM = 1;
+          client.print(html_res_head);
+          client.print(ope_set_str);
           delay(10);
           client.stop();
         }
@@ -725,9 +778,13 @@ void wifi_access_point()
           Serial.print("req_str:");
           Serial.print(req_str);
           client.print(html_res_head404);
-          if (pre_url.indexOf("GET /param_set") >= 0) // reloadすると"new clientst: 192.168.4.1"がreq_strに入るため、その前のURLを表示:w
+          if (pre_url.indexOf("GET /param_set") >= 0) // reloadすると"new clientst: 192.168.4.1"がreq_strに入るため、その前のURLを表示
           {
             client.print(strHtml);
+          }
+          else if (pre_url.indexOf("GET /ope_param_set") >= 0)
+          {
+            client.print(ope_set_str);
           }
           delay(10);
           client.stop();
@@ -803,6 +860,8 @@ String HTML_Select_Box_str(String Sel_Ssid)
   str += "</form><br>\r\n";
   str += "<br>";
   str += "<a href=\"/param_set/\" style=\"color:navy\">Calibration</a>";
+  str += "<br>";
+  str += "<a href=\"/ope_param_set/\" style=\"color:navy\">Operation Setting</a>";
   // str += "<form name='F_connection_close'>\r\n";
   // str += "  <button type='submit' name='connection_close' value='send' style='background-color:#FAA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=\"Connection close\";'>Connection Close</button>\r\n";
   // str += "</form>\r\n";
