@@ -27,11 +27,16 @@ int SCB_CNT = 0;  // serial char cnt
 String SERIAL_BUF, PRE_SERIAL_BUF;
 int PAGE_NUM = 0; // 0:wifi set 1:parameter set
 void receiveEvent(int howMany);
-struct eeprom_struct
-{ // EEPROMで利用する型を宣言
-  char host_ip[64];
-};
+// struct eeprom_struct
+// { // EEPROMで利用する型を宣言
+//   char host_ip[64];
+// };
 String HOST_IP;
+
+struct eeprom_struct // EEPROMで利用する型を宣言
+{
+  char setting_para[128];
+};
 
 struct para_d
 {                               //動作を規定するパラメータ
@@ -64,6 +69,10 @@ String Selected_SSID_str;
 String Sel_SSID_PASS_str;
 String CLIENT_ID; // mac addressをユニークなIDとして使用
 uint32_t scanLastTime = 0;
+// eeprom
+String S_n_xave_flg[4];       //演算 0:ave 1:normal ch1,2,3,4のそれぞれにセット
+int Model_no;                 // Model No. 0:rex noise/shake 1:4ch normal
+unsigned long Meas_period_ms; //測定周期
 // boolean FIRST_SCAN_FLAG = true;  //外部変数だとfalseにセットしてもなぜかtrueに戻されてしまう　謎
 boolean CMD_RECEIVE_FLAG = false;
 #define XAP_BTN 35 // io番号で指定する(pin no.ではない)
@@ -78,6 +87,67 @@ int CHATTERING_CNT = 0;           //チャタリング対策
 // boolean tsf = false; //本体起動から10秒経ったらtrueにする
 
 /* HTMLページ */
+const char *str_factory = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Factory</h1>
+    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+    <br>
+    <br>
+    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a>
+    <br>
+    <br>
+    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
+    <br>
+    <br>
+    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Operation Setting</a>
+  </body>
+</html>)rawliteral";
+
+const char *str_home = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Home</h1>
+    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a>
+    <br>
+    <br>
+    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
+    <br>
+    <br>
+    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Operation Setting</a>
+  </body>
+</html>)rawliteral";
+
 const char *strHtml = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
@@ -127,7 +197,7 @@ const char *strHtml = R"rawliteral(
       </table></p>
     </form>
     <br>
-    <a href='/' style='color:navy; font-size:20px;'>WiFi SET</a>
+    <a href='/' style='color:navy; font-size:20px;'>Home</a>
   </body>
   <script>
     var get_meas_param = function () {
@@ -176,19 +246,44 @@ const char *ope_set_str = R"rawliteral(
   <body>
     <h1>Operation Setting</h1>
     <p style='color:brown; font-weight: bold'>Measuring Period</p>
-    <form name>
-      <input type='text' name='meas_period_param'><label> sec  </label><button type='submit' name='meas_period_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br>
-    <p style='color:brown; font-weight: bold'>Averrage / Normal</p>
-    <form name>
-      <input type="radio" name="ave_normal" value="averrage"  checked="checked">Averrage
-      <input type="radio" name="ave_normal" value="normal">Normal
+    <form>
+      <input type='text' name='meas_period_param' value="60"><label> sec(>=60)  </label>
+      <br>
+      <p style='color:brown; font-weight: bold'>Average / Normal</p>
+      <p><table>
+        <tr><th>CH</th><th>AVERAGE / NORMAL</th></tr>
+        <tr><td>1</td><td><input type="radio" name="average_normal0" value="0">Average<input type="radio" name="average_normal0" value="1">Normal</td></tr>
+        <tr><td>2</td><td><input type="radio" name="average_normal1" value="0">Average<input type="radio" name="average_normal1" value="1">Normal</td></tr>
+        <tr><td>3</td><td><input type="radio" name="average_normal2" value="0">Average<input type="radio" name="average_normal2" value="1">Normal</td></tr>
+        <tr><td>4</td><td><input type="radio" name="average_normal3" value="0">Average<input type="radio" name="average_normal3" value="1">Normal</td></tr>
+      </table></p>
       <button type='submit' name='ave_normal_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
     <br>
-    <a href='/' style='color:navy; font-size:20px;'>WiFi SET</a>
+    <a href='/' style='color:navy; font-size:20px;'>Home</a>
   </body>
+  <script>
+    var ave_nomal = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let cmd = this.responseText.split(',');
+          let elements = document.getElementsByName("meas_period_param");
+          elements[0].value = cmd[0]; 
+          for(let i=0;i<4;i++){
+            let stmp = "average_normal" + i;
+            console.log(stmp)
+            console.log(cmd[1].substr(i,1));
+            let elements = document.getElementsByName(stmp);
+            elements[Number(cmd[1].substr(i,1))].checked = true;
+          }
+        }
+      };
+      xhr.open("GET", "/get_ope_param", true);
+      xhr.send(null);
+    }
+    window.onload = ave_nomal;    //ページ読み込み後実行
+  </script>
 </html>)rawliteral";
 
 // AWS IoT Setting
@@ -204,6 +299,52 @@ unsigned int mcnt = 0;     // 10分間に何回ループしたか
 hw_timer_t *timer = NULL;    // watchdog timer用
 const int wdtTimeout = 6000; // time in ms to trigger the watchdog
 
+void eeprom_write(void)
+{
+  eeprom_struct ebuf; //メモリ上に実体を作成
+  String sbuf = "";
+  sbuf += String(Model_no); // model No. 0:rex noise/shake,1:normal 4ch
+  sbuf += ",";
+  sbuf += String(Meas_period_ms); //測定周期 ms
+  sbuf += ",";
+  sbuf += S_n_xave_flg[0] + S_n_xave_flg[1] + S_n_xave_flg[2] + S_n_xave_flg[3]; // 1:normal 0:average ch1,ch2,ch3,ch4と個別設定
+  sbuf.toCharArray(ebuf.setting_para, 128);                                      // Stringをcharに
+  EEPROM.put<eeprom_struct>(0, ebuf);                                            // 変数に値を書き込み
+  EEPROM.commit();                                                               // EEPROMに書き込み
+}
+
+// eepromから変換用パラメータを読み込む
+// 3個に区切れなければfalseデフォルト値を設定しtrueをリターン
+boolean eeprom_read(void)
+{
+  int itmp;
+  EEPROM.begin(128);                  // EEPROM開始（サイズ指定）
+  eeprom_struct cbuf;                 //メモリ上に実体を作成
+  EEPROM.get<eeprom_struct>(0, cbuf); //実態変数にEEPROMの値を代入
+  String stmp = cbuf.setting_para;    // charをstringに変換
+  String dst[16];                     //分割数　max 16まで対応
+  itmp = split(stmp, ',', dst, 3);
+  if (itmp != 3) // eepromにパラメータが入っていなければ
+  {
+    Model_no = 0;
+    Meas_period_ms = 600000;
+    S_n_xave_flg[0] = "0";
+    S_n_xave_flg[1] = "0";
+    S_n_xave_flg[2] = "0";
+    S_n_xave_flg[3] = "0";
+    return false;
+  }
+  else
+  {
+    Model_no = dst[0].toInt();
+    Meas_period_ms = dst[1].toInt();
+    S_n_xave_flg[0] = dst[2].substring(0, 1);
+    S_n_xave_flg[1] = dst[2].substring(1, 2);
+    S_n_xave_flg[2] = dst[2].substring(2, 3);
+    S_n_xave_flg[3] = dst[2].substring(3);
+    return true;
+  }
+}
 //文字列がfloatかチェック(0-9 & "."が一つ)
 boolean is_float(String str)
 {
@@ -267,6 +408,7 @@ int split(String data, char delimiter, String *dst, int max)
   }
   return (index + 1);
 }
+
 //正常なipアドレスかチェックする
 boolean chk_host_ip()
 {
@@ -318,6 +460,20 @@ boolean chk_para(void)
   {
     return false;
   }
+}
+
+//数値かどうか判別
+//エラーならfalseを返す,マイナスは対応していない
+boolean chk_number(String val)
+{
+  for (int i = 0; i < val.length(); i++)
+  {
+    if (!is_number(val.substring(i, 1))) // 0～9の文字でなければ
+    {
+      return false;
+    }
+  }
+  return true;
 }
 
 // host ip の項目に入っている文字列がm区切りで、4つの数値が入っていれば、その値をPARAに設定する
@@ -444,8 +600,8 @@ String format_pass(String *pass_tmp)
   return pw;
 }
 
-/* 計測処理ロジック */
-String get_meas_param()
+//シリアルからコマンドを受け取っていたら、"para1,para2,para3,,,,para12,"という文字列を返す ajax
+String get_meas_param_func()
 {
   String str = "";
   String dst[14];       // split()を呼ぶ前に初期化しなければならない
@@ -557,20 +713,38 @@ void wifi_access_point()
         }
         else if (req_str.indexOf("GET /param_set") >= 0)
         {
-          pre_url = "GET /param_set/?";
+          pre_url = "GET /param_set/";
           PAGE_NUM = 1;
           client.print(html_res_head);
           client.print(strHtml);
           delay(10);
           client.stop();
         }
-        else if (req_str.indexOf("GET /ope_param_set/?") >= 0) // GET /ope_param_setより先に?付きを検出
+        else if (req_str.indexOf("GET /ope_param_set/?") >= 0) // GET /ope_param_setより先に"?"付きを検出
         {
           pre_url = "GET /ope_param_set";
-          Serial.println("GET /param_set/?");
-          int16_t idx0 = req_str.indexOf("meas_period_param=");
-          String s_meas_priod = req_str.substring(idx0 + 18, req_str.indexOf("&meas_period_submit"));
-          Serial.println(s_meas_priod);
+          int16_t idx0 = req_str.indexOf("?meas_period_param=");
+          if (idx0 > 0)
+          {
+            String stmp = req_str.substring(idx0 + 19, req_str.indexOf("&average_normal0="));
+            Serial.println(stmp);
+            if (is_number(stmp)) //正常な数値なら代入、数値でなければ何もしない
+            {
+              Meas_period_ms = stmp.toInt() * 1000;
+            }
+
+            S_n_xave_flg[0] = req_str.substring(req_str.indexOf("&average_normal0=") + 17, req_str.indexOf("&average_normal1="));
+            S_n_xave_flg[1] = req_str.substring(req_str.indexOf("&average_normal1=") + 17, req_str.indexOf("&average_normal2="));
+            S_n_xave_flg[2] = req_str.substring(req_str.indexOf("&average_normal2=") + 17, req_str.indexOf("&average_normal3="));
+            S_n_xave_flg[3] = req_str.substring(req_str.indexOf("&average_normal3=") + 17, req_str.indexOf("&ave_normal_submit"));
+            Serial.println("&ave_normal_submit");
+            Serial.println(req_str);
+            Serial.println(S_n_xave_flg[0]);
+            Serial.println(S_n_xave_flg[1]);
+            Serial.println(S_n_xave_flg[2]);
+            Serial.println(S_n_xave_flg[3]);
+          }
+          eeprom_write();
         }
         else if (req_str.indexOf("GET /ope_param_set") >= 0)
         {
@@ -582,36 +756,31 @@ void wifi_access_point()
           delay(10);
           client.stop();
         }
-        else if (req_str.indexOf("GET /get_meas_param") >= 0)
+        else if (req_str.indexOf("GET /get_meas_param") >= 0) // ajax
         {
           PAGE_NUM = 1;
-          client.print(html_res_head2);
-          String stmp = get_meas_param();
-          client.print(stmp.c_str());
+          client.print(html_res_head2); // plain text
+          String stmp = get_meas_param_func();
+          client.print(stmp.c_str()); // ajax 返り値
           Serial.print(stmp.c_str());
           delay(10);
           client.stop();
         }
-        else if (req_str.indexOf("GET / ") >= 0)
+        else if (req_str.indexOf("GET /get_ope_param") >= 0) // ajax
         {
-          PAGE_NUM = 0;
-          Serial.println("--------------- GET Request Receive from Clinet");
-          while (client.available())
-          {
-            char c = client.read();
-            Serial.write(c);
-          }
-          Serial.println("--------------- GET Request Receive Finish");
-          html_send(false, "Connection close", "Connection close", "#FFF", html_res_head, html_tag1, html_tag2);
-
+          String stmp;
+          stmp = String(Meas_period_ms / 1000);
+          stmp = stmp + ',' + S_n_xave_flg[0] + S_n_xave_flg[1] + S_n_xave_flg[2] + S_n_xave_flg[3];
+          PAGE_NUM = 1;
+          client.print(html_res_head2); // plain text
+          client.print(stmp.c_str());   // ajax 返り値
+          Serial.print(stmp);
           delay(10);
           client.stop();
-          Serial.println("client disonnected");
-          delay(10);
-          req_str = "";
         }
-        else if (req_str.indexOf("GET /?") >= 0)
+        else if (req_str.indexOf("GET /wifi_set/?") >= 0)
         {
+          pre_url = "GET /wifi/";
           PAGE_NUM = 0;
           Serial.println("--------------- SUBMIT Receive from Clinet");
           int16_t getTXT_pass = req_str.indexOf("pass1=");
@@ -667,7 +836,7 @@ void wifi_access_point()
             }
             String param = "Communication period:" + String(PARA.com_period) + "<BR>" +
                            "Sampling period:" + String(PARA.sampling_period) + "<BR>" +
-                           "Averrage/Normal:" + param2 + "<BR>" +
+                           "Average/Normal:" + param2 + "<BR>" +
                            "MAC ADDRESS:" + CLIENT_ID;
             html_send(false, "print PARA", param, "#FF0", html_res_head, html_tag1, html_tag2);
             break;
@@ -765,10 +934,48 @@ void wifi_access_point()
           delay(10);
           req_str = "";
         }
+        else if (req_str.indexOf("GET /wifi_set") >= 0)
+        {
+          pre_url = "GET /wifi/";
+          PAGE_NUM = 0;
+          Serial.println("--------------- GET Request Receive from Clinet");
+          while (client.available())
+          {
+            char c = client.read();
+            Serial.write(c);
+          }
+          Serial.println("--------------- GET Request Receive Finish");
+          html_send(false, "Connection close", "Connection close", "#FFF", html_res_head, html_tag1, html_tag2);
+
+          delay(10);
+          client.stop();
+          Serial.println("client disonnected");
+          delay(10);
+          req_str = "";
+        }
+        else if (req_str.indexOf("GET /-----") >= 0)
+        {
+          PAGE_NUM = 0;
+          pre_url = "GET /-----/";
+          client.print(html_res_head);
+          client.print(str_factory);
+          delay(10);
+          client.stop();
+          req_str = "";
+        }
         else if (req_str.indexOf("GET /favicon") >= 0)
         {
           PAGE_NUM = 0;
           favicon_response();
+          req_str = "";
+        }
+        else if (req_str.indexOf("GET /") >= 0)
+        {
+          PAGE_NUM = 0;
+          client.print(html_res_head);
+          client.print(str_home);
+          delay(10);
+          client.stop();
           req_str = "";
         }
         else
@@ -859,9 +1066,7 @@ String HTML_Select_Box_str(String Sel_Ssid)
   // str += "<br><button type='submit' name='unit_reset' value='send' style='background-color:#FAF;'>RESET</button>\r\n";
   str += "</form><br>\r\n";
   str += "<br>";
-  str += "<a href=\"/param_set/\" style=\"color:navy\">Calibration</a>";
-  str += "<br>";
-  str += "<a href=\"/ope_param_set/\" style=\"color:navy\">Operation Setting</a>";
+  str += "<a href=\"/\" style=\"color:navy\">Home</a>";
   // str += "<form name='F_connection_close'>\r\n";
   // str += "  <button type='submit' name='connection_close' value='send' style='background-color:#FAA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=\"Connection close\";'>Connection Close</button>\r\n";
   // str += "</form>\r\n";
@@ -994,7 +1199,7 @@ void print_para(void)
   Serial.println(PARA.com_period);
   Serial.print("sampling period:");
   Serial.println(PARA.sampling_period);
-  Serial.print("Averrage/Normal:");
+  Serial.print("Average/Normal:");
   if (PARA.ave_flag == 1)
   {
     Serial.println("Average");
@@ -1145,25 +1350,8 @@ void setup()
   // }
   // if (!read_para_file()) // msc.txtよりパラメータを読み取りできなければ
   // {
-  PARA.cxl = 1; //初期値設定
-  PARA.com_period = 600000;
-  PARA.sampling_period = 1000;
-  PARA.ave_flag = 1;
-  //   write_para_file(); // msc.txtに書き込み
-  // }
-  PARA.cxl = 1; //初期値設定
-  PARA.com_period = 600000;
-  PARA.sampling_period = 1000;
-  PARA.ave_flag = 1;
-  // eepromよりhost ipを読み取り、PARAへ入れる
-  EEPROM.begin(128);                 // EEPROM開始(サイズ指定)
-  eeprom_struct buf;                 //メモリ上に実体を作成
-  EEPROM.get<eeprom_struct>(0, buf); //実態変数にEEPROMの値を代入
-  PARA.host_ip = buf.host_ip;        // charをstringに変換
-  if (!chk_host_ip())                //正常なIPアドレスかチェック
-    PARA.host_ip = "192.168.11.11";  //異常ならデフォルトセット
-
-  print_para(); //パラメーター表示
+  // eepromよりパラメータ読み取り,何も書き込まれてなければ初期値が入る
+  eeprom_read();
 
   //  setup_wifi();
   pinMode(XAP_BTN, INPUT);     // ap button
