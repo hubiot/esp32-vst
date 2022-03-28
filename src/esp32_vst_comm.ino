@@ -102,7 +102,8 @@ const char *str_factory = R"rawliteral(
       <label for = model_no>Select Model</label>
       <select name="model_no">
         <option value="0">REX (NOISE/SHAKE)</option>
-        <option value="1">Normal 4ch</option>
+        <option value="1">Normal 4ch cloud</option>
+        <option value="2">Normal 4ch local</option>
       </select>
       <button type='submit' name='factory_param_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
@@ -141,7 +142,33 @@ const char *str_factory = R"rawliteral(
   </script>
 </html>)rawliteral";
 
-const char *str_home = R"rawliteral(
+const char *str_rex_noise_shake = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Home</h1>
+    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a>
+    <br>
+    <br>
+    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
+  </body>
+</html>)rawliteral";
+
+const char *str_normal_4ch_cloud = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
   <head>
@@ -170,7 +197,39 @@ const char *str_home = R"rawliteral(
   </body>
 </html>)rawliteral";
 
-const char *strHtml = R"rawliteral(
+const char *str_normal_4ch_local = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Home</h1>
+    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a>
+    <br>
+    <br>
+    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
+    <br>
+    <br>
+    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Operation Setting</a>
+    <br>
+    <br>
+    <a href='/host_ip_set/' style='color:navy; font-size:20px;'>Host IP</a>
+  </body>
+</html>)rawliteral";
+
+const char *str_calibration = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
   <head>
@@ -263,6 +322,53 @@ const char *strHtml = R"rawliteral(
   </script>
 </html>)rawliteral";
 
+const char *str_host_ip = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Host IP Setting</h1>
+    <form>
+      <label>Host IP</label>
+      <input type='text' name='host_ip_param' id='host_ip_param1' value="">
+      <br>
+      <br>
+      <button type='submit' name='host_ip_para_submit' value='send' style='background-color:#AFA;'>Set</button>
+    </form>
+    <br>
+    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+  </body>
+  <script>
+    var disp_host_ip = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let cmd = this.responseText;
+          console.log(cmd);
+          let element =document.getElementById("host_ip_param1");
+          element.value = cmd;
+        }
+      };
+      xhr.open("GET", "/disp_host_ip", true);
+      xhr.send(null);
+    }
+    window.onload = disp_host_ip;    //ページ読み込み後実行
+  </script>
+</html>)rawliteral";
+
 const char *ope_set_str = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
@@ -345,7 +451,7 @@ void eeprom_write(void)
   eeprom_struct ebuf; //メモリ上に実体を作成
   String sbuf = "";
   // model no: 0
-  sbuf += String(PARA.model_no); // model No. 0:rex noise/shake,1:normal 4ch
+  sbuf = String(PARA.model_no); // model No. 0:rex noise/shake,1:normal 4ch
   sbuf += ",";
   // ave normal flag : 1
   for (int i = 0; i < 4; i++)
@@ -384,8 +490,8 @@ boolean eeprom_read(void)
   }
   else
   {
-    PARA.model_no = dst[0].toInt(); // model no. :0
-    if (PARA.model_no < 0 || PARA.model_no >= 2)
+    PARA.model_no = dst[0].toInt();              // model no. :0
+    if (PARA.model_no < 0 || PARA.model_no >= 3) //想定外だとrex noise/shake版にする
     {
       PARA.model_no = 0;
     }
@@ -393,7 +499,7 @@ boolean eeprom_read(void)
     PARA.s_n_xave_flg[1] = dst[1].substring(1, 2); // normal / xave
     PARA.s_n_xave_flg[2] = dst[1].substring(2, 3); // normal / xave
     PARA.s_n_xave_flg[3] = dst[1].substring(3);    // normal / xave
-    PARA.host_ip = dst[3];                         // host IP :2
+    PARA.host_ip = dst[2];                         // host IP :2
     return true;
   }
 }
@@ -463,11 +569,11 @@ int split(String data, char delimiter, String *dst, int max)
 }
 
 //正常なipアドレスかチェックする
-boolean chk_host_ip()
+boolean chk_host_ip(String *str)
 {
   int i, tmp;
   String dst[4];
-  i = split(PARA.host_ip, '.', dst, 4);
+  i = split(*str, '.', dst, 4);
   if (i != 4) //.で4つに区切れていなければ
   {
     return false;
@@ -797,7 +903,7 @@ void wifi_access_point()
           pre_url = "GET /param_set/";
           PAGE_NUM = 1;
           client.print(html_res_head);
-          client.print(strHtml);
+          client.print(str_calibration);
           delay(10);
           client.stop();
         }
@@ -842,9 +948,80 @@ void wifi_access_point()
           delay(10);
           client.stop();
         }
+
+        else if (req_str.indexOf("GET /ope_param_set/?") >= 0) // GET /ope_param_setより先に"?"付きを検出
+        {
+          Serial.println("GET /ope_param_set/?");
+          pre_url = "GET /ope_param_set";
+          int16_t idx0 = req_str.indexOf("?ope_param=");
+          String stmp;
+          unsigned int meas_period;
+          if (idx0 > 0)
+          {
+            stmp = req_str.substring(idx0 + 11, req_str.indexOf("&average_normal0="));
+            Serial.println(stmp);
+            PARA.s_n_xave_flg[0] = req_str.substring(req_str.indexOf("&average_normal0=") + 17, req_str.indexOf("&average_normal1="));
+            PARA.s_n_xave_flg[1] = req_str.substring(req_str.indexOf("&average_normal1=") + 17, req_str.indexOf("&average_normal2="));
+            PARA.s_n_xave_flg[2] = req_str.substring(req_str.indexOf("&average_normal2=") + 17, req_str.indexOf("&average_normal3="));
+            PARA.s_n_xave_flg[3] = req_str.substring(req_str.indexOf("&average_normal3=") + 17, req_str.indexOf("&ope_para_submit"));
+          }
+          Serial.println(PARA.s_n_xave_flg[0]);
+          Serial.println(PARA.s_n_xave_flg[1]);
+          Serial.println(PARA.s_n_xave_flg[2]);
+          Serial.println(PARA.s_n_xave_flg[3]);
+          meas_period = stmp.toInt(); // intに変換できなければ0
+          // if (meas_period >= 60 && meas_period <= 3600) //測定周期が正常値なら
+          if (meas_period >= 2)
+          {
+            eeprom_write();                  // ave normalはcommで保存
+            Serial2.print("OPE_PARAM_SET@"); // measへコマンド転送
+            Serial2.println(meas_period);    // 測定周期転送
+            Serial.print("OPE_PARAM_SET@");  // measへコマンド転送 debug用
+            Serial.println(meas_period);     // 測定周期転送
+          }
+        }
+        else if (req_str.indexOf("GET /ope_param_set") >= 0)
+        {
+          Serial.println("GET /ope_param_set");
+          pre_url = "GET /ope_param_set";
+          PAGE_NUM = 1;
+          client.print(html_res_head);
+          client.print(ope_set_str);
+          delay(10);
+          client.stop();
+        }
+        else if (req_str.indexOf("GET /host_ip_set/?") >= 0)
+        {
+          pre_url = "GET /host_ip_set";
+          int16_t idx_host_ip = req_str.indexOf("?host_ip_param=");
+          String stmp;
+          if (idx_host_ip > 0)
+          {
+            stmp = req_str.substring(idx_host_ip + 15, req_str.indexOf("&host_ip_para_submit"));
+          }
+          Serial.println(req_str);
+          Serial.println(stmp);
+          if (chk_host_ip(&stmp)) // host ipとして正しいか？
+          {
+            PARA.host_ip = stmp;
+          }
+          Serial.println(PARA.host_ip);
+          eeprom_write();
+          // client.print(html_res_head);
+          // client.print(str_host_ip);
+          // delay(10);
+          // client.stop();
+        }
+        else if (req_str.indexOf("GET /host_ip_set") >= 0)
+        {
+          pre_url = "GET /host_ip_set/";
+          client.print(html_res_head);
+          client.print(str_host_ip);
+          delay(10);
+          client.stop();
+        }
         else if (req_str.indexOf("GET /disp_factory_param") >= 0) // ajax
         {
-          PAGE_NUM = 1;
           client.print(html_res_head2); // plain text
           String stmp = String(PARA.model_no);
 
@@ -884,6 +1061,16 @@ void wifi_access_point()
           client.print(html_res_head2); // plain text
           client.print(stmp.c_str());   // ajax 返り値
           Serial.print(stmp);
+          delay(10);
+          client.stop();
+        }
+        else if (req_str.indexOf("GET /disp_host_ip") >= 0) // ajax
+        {
+          client.print(html_res_head2); // plain text
+          String stmp = PARA.host_ip;
+          client.print(stmp.c_str()); // ajax 返り値
+          Serial.print("ajax:");
+          Serial.print(stmp.c_str());
           delay(10);
           client.stop();
         }
@@ -1065,7 +1252,18 @@ void wifi_access_point()
         {
           PAGE_NUM = 0;
           client.print(html_res_head);
-          client.print(str_home);
+          if (PARA.model_no == 0)
+          {
+            client.print(str_rex_noise_shake);
+          }
+          else if (PARA.model_no == 1)
+          {
+            client.print(str_normal_4ch_cloud);
+          }
+          else if (PARA.model_no == 2)
+          {
+            client.print(str_normal_4ch_local);
+          }
           delay(10);
           client.stop();
           req_str = "";
@@ -1073,17 +1271,28 @@ void wifi_access_point()
         else
         {
           // pre_url = "GET /param_set/?";
-          Serial.println("else");
           Serial.print("req_str:");
           Serial.print(req_str);
           client.print(html_res_head404);
           if (pre_url.indexOf("GET /param_set") >= 0) // reloadすると"new clientst: 192.168.4.1"がreq_strに入るため、その前のURLを表示
           {
-            client.print(strHtml);
+            client.print(str_calibration);
           }
           else if (pre_url.indexOf("GET /ope_param_set") >= 0)
           {
             client.print(ope_set_str);
+          }
+          else if (pre_url.indexOf("GET /host_ip_set") >= 0)
+          {
+            client.print(str_host_ip);
+          }
+          else if (pre_url.indexOf("GET /f1c9t") >= 0) // factory
+          {
+            client.print(str_factory);
+          }
+          else
+          {
+            client.print(str_normal_4ch_cloud);
           }
           delay(10);
           client.stop();
