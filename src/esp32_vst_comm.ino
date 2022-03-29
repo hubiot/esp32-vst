@@ -121,7 +121,10 @@ const char *str_factory = R"rawliteral(
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
     <br>
     <br>
-    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Operation Setting</a>
+    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Measurement Period</a>
+    <br>
+    <br>
+    <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
   </body>
   <script>
     var factory_param = function () {
@@ -193,7 +196,10 @@ const char *str_normal_4ch_cloud = R"rawliteral(
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
     <br>
     <br>
-    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Operation Setting</a>
+    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Measurement Period</a>
+    <br>
+    <br>
+    <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
   </body>
 </html>)rawliteral";
 
@@ -347,8 +353,6 @@ const char *str_host_ip = R"rawliteral(
       <br>
       <br>
       <button type='submit' name='host_ip_para_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br>
     <a href='/' style='color:navy; font-size:20px;'>Home</a>
   </body>
   <script>
@@ -387,17 +391,18 @@ const char *ope_set_str = R"rawliteral(
     </style>
   </head>
   <body>
-    <h1>Operation Setting</h1>
-    <p style='color:brown; font-weight: bold'>Measuring Period</p>
+    <h1>Measurement Period Setting</h1>
+    <p style='color:brown; font-weight: bold'>Measurement Period</p>
     <form>
       <p><table>
-        <tr><th>Meas Period(sec)</th></tr>
+        <tr><th>Measurement Period(sec)</th></tr>
         <tr><td><span id="meas_period_val" class="value"></span></td></tr>
       </table></p>
       <input type='text' name='ope_param' value=""><label>(60 - 3600)</label>
       <br>
       <br>
       <p style='color:brown; font-weight: bold'>Average / Normal</p>
+      </table></p>
       <p><table>
         <tr><th>CH</th><th>AVERAGE / NORMAL</th></tr>
         <tr><td>1</td><td><input type="radio" name="average_normal0" value="0">Average<input type="radio" name="average_normal0" value="1">Normal</td></tr>
@@ -430,6 +435,61 @@ const char *ope_set_str = R"rawliteral(
       xhr.send(null);
     }
     setInterval(ope_param_disp, 1000);
+  </script>
+</html>)rawliteral";
+
+const char *str_ave_normal = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Average / Normal Setting</h1>
+    <p style='color:brown; font-weight: bold'>Measurement Period</p>
+    <form>
+      <p><table>
+        <tr><th>CH</th><th>AVERAGE / NORMAL</th></tr>
+        <tr><td>1</td><td><input type="radio" name="average_normal0" value="0">Average<input type="radio" name="average_normal0" value="1">Normal</td></tr>
+        <tr><td>2</td><td><input type="radio" name="average_normal1" value="0">Average<input type="radio" name="average_normal1" value="1">Normal</td></tr>
+        <tr><td>3</td><td><input type="radio" name="average_normal2" value="0">Average<input type="radio" name="average_normal2" value="1">Normal</td></tr>
+        <tr><td>4</td><td><input type="radio" name="average_normal3" value="0">Average<input type="radio" name="average_normal3" value="1">Normal</td></tr>
+      </table></p>
+      <button type='submit' name='ope_para_submit' value='send' style='background-color:#AFA;'>Set</button>
+    </form>
+    <br>
+    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+  </body>
+  <script>
+    var disp_ave_normal = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let cmd = this.responseText.split(',');
+          console.log(cmd);
+          for(let i=0;i<4;i++){
+            let stmp = "average_normal" + i;
+            let elements = document.getElementsByName(stmp);
+            console.log(elements);
+            elements[Number(cmd[i])].checked = true;
+          }
+        }
+      };
+      xhr.open("GET", "/disp_ave_normal", true);
+      xhr.send(null);
+    }
+    window.onload = disp_ave_normal;
   </script>
 </html>)rawliteral";
 
@@ -852,7 +912,7 @@ void wifi_access_point()
         Serial.println(PAGE_NUM);
         if (req_str.indexOf("GET /param_set/?") >= 0)
         {
-          pre_url = "GET /param_set/?";
+          pre_url = "GET /param_set";
           Serial.println("param_set");
           PAGE_NUM = 1;
           int16_t idx_ch_num = req_str.indexOf("channel_number=");
@@ -900,7 +960,7 @@ void wifi_access_point()
         }
         else if (req_str.indexOf("GET /param_set") >= 0)
         {
-          pre_url = "GET /param_set/";
+          pre_url = "GET /param_set";
           PAGE_NUM = 1;
           client.print(html_res_head);
           client.print(str_calibration);
@@ -938,17 +998,6 @@ void wifi_access_point()
             Serial.println(meas_period);     // 測定周期転送
           }
         }
-        else if (req_str.indexOf("GET /ope_param_set") >= 0)
-        {
-          Serial.println("GET /ope_param_set");
-          pre_url = "GET /ope_param_set";
-          PAGE_NUM = 1;
-          client.print(html_res_head);
-          client.print(ope_set_str);
-          delay(10);
-          client.stop();
-        }
-
         else if (req_str.indexOf("GET /ope_param_set/?") >= 0) // GET /ope_param_setより先に"?"付きを検出
         {
           Serial.println("GET /ope_param_set/?");
@@ -990,6 +1039,26 @@ void wifi_access_point()
           delay(10);
           client.stop();
         }
+        else if (req_str.indexOf("GET /ave_normal_set/?") >= 0)
+        {
+          pre_url = "GET /ave_normal_set";
+          PARA.s_n_xave_flg[0] = req_str.substring(req_str.indexOf("?average_normal0=") + 17, req_str.indexOf("&average_normal1="));
+          PARA.s_n_xave_flg[1] = req_str.substring(req_str.indexOf("&average_normal1=") + 17, req_str.indexOf("&average_normal2="));
+          PARA.s_n_xave_flg[2] = req_str.substring(req_str.indexOf("&average_normal2=") + 17, req_str.indexOf("&average_normal3="));
+          PARA.s_n_xave_flg[3] = req_str.substring(req_str.indexOf("&average_normal3=") + 17, req_str.indexOf("&ope_para_submit"));
+          Serial.println("aaaaaaaaaaaaaaa");
+          Serial.println(PARA.s_n_xave_flg[0]);
+          Serial.println("aaaaaaaaaaaaaaa");
+          eeprom_write();
+        }
+        else if (req_str.indexOf("GET /ave_normal_set") >= 0)
+        {
+          pre_url = "GET /ave_normal_set";
+          client.print(html_res_head);
+          client.print(str_ave_normal);
+          delay(10);
+          client.stop();
+        }
         else if (req_str.indexOf("GET /host_ip_set/?") >= 0)
         {
           pre_url = "GET /host_ip_set";
@@ -1007,18 +1076,28 @@ void wifi_access_point()
           }
           Serial.println(PARA.host_ip);
           eeprom_write();
-          // client.print(html_res_head);
-          // client.print(str_host_ip);
-          // delay(10);
-          // client.stop();
         }
         else if (req_str.indexOf("GET /host_ip_set") >= 0)
         {
-          pre_url = "GET /host_ip_set/";
+          pre_url = "GET /host_ip_set";
           client.print(html_res_head);
           client.print(str_host_ip);
           delay(10);
           client.stop();
+        }
+        else if (req_str.indexOf("GET /disp_ave_normal") >= 0) // ajax
+        {
+          client.print(html_res_head2); // plain text
+          String stmp;
+          for (int i = 0; i < 4; i++)
+          {
+            stmp = stmp + PARA.s_n_xave_flg[i] + ","; // ave normal flg追加
+          }
+          client.print(stmp.c_str()); // ajax 返り値
+          Serial.print(stmp.c_str());
+          delay(10);
+          client.stop();
+          eeprom_write();
         }
         else if (req_str.indexOf("GET /disp_factory_param") >= 0) // ajax
         {
@@ -1077,7 +1156,7 @@ void wifi_access_point()
         else if (req_str.indexOf("GET /wifi_set/?") >= 0)
         {
           // wifi_scan(30000);
-          pre_url = "GET /wifi/";
+          pre_url = "GET /wifi";
           PAGE_NUM = 0;
           Serial.println("--------------- SUBMIT Receive from Clinet");
           int16_t getTXT_pass = req_str.indexOf("pass1=");
@@ -1197,7 +1276,7 @@ void wifi_access_point()
         else if (req_str.indexOf("GET /wifi_set") >= 0)
         {
           wifi_scan();
-          pre_url = "GET /wifi/";
+          pre_url = "GET /wifi";
           PAGE_NUM = 0;
           Serial.println("--------------- GET Request Receive from Clinet");
           while (client.available())
@@ -1217,7 +1296,7 @@ void wifi_access_point()
         else if (req_str.indexOf("GET /f1c9t?") >= 0) // factory
         {
           PAGE_NUM = 1;
-          pre_url = "GET /f1c9t/";
+          pre_url = "GET /f1c9t";
           Serial.println(req_str);
           String stmp = req_str.substring(req_str.indexOf("GET /?model_no=") + 21, req_str.indexOf("&factory_param_submit"));
           Serial.println("====================");
@@ -1235,7 +1314,7 @@ void wifi_access_point()
         else if (req_str.indexOf("GET /f1c9t") >= 0)
         {
           PAGE_NUM = 0;
-          pre_url = "GET /facto/";
+          pre_url = "GET /f1c9t";
           client.print(html_res_head);
           client.print(str_factory);
           delay(10);
@@ -1289,6 +1368,10 @@ void wifi_access_point()
           else if (pre_url.indexOf("GET /f1c9t") >= 0) // factory
           {
             client.print(str_factory);
+          }
+          else if (pre_url.indexOf("GET /ave_normal_set") >= 0) // ave / normal
+          {
+            client.print(str_ave_normal);
           }
           else
           {
