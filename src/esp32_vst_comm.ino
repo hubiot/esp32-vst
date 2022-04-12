@@ -6,6 +6,8 @@
 // esp32のflashを暗号化機能を使えば、独自に暗号化するより安全と判断
 //証明書を変更するには再コンパイルが必要
 
+#define VST100 1
+
 #include "esp_system.h"
 #include <WiFi.h>
 // #include "FS.h"
@@ -43,8 +45,8 @@ para_d PARA;
 // const char *pubTopic = "pub01"; //クラウドデバッグ環境用
 const char *pubTopic = "pub_prod"; //クラウド製品版
 
-// #define SDA_PIN 21
-// #define SCL_PIN 22
+#define SDA_PIN 21
+#define SCL_PIN 22
 
 // String rootCA_file = "/AmazonRootCA1.pem";        // rootCA
 // String certificate_file = "/certificate.pem.crt"; // certificate
@@ -64,13 +66,12 @@ String CLIENT_ID; // mac addressをユニークなIDとして使用
 uint32_t scanLastTime = 0;
 // eeprom
 // String S_n_xave_flg[4]; //演算 0:ave 1:normal ch1,2,3,4のそれぞれにセット
-int Model_no; // Model No. 0:rex noise/shake 1:4ch normal
 // boolean FIRST_SCAN_FLAG = true;  //外部変数だとfalseにセットしてもなぜかtrueに戻されてしまう　謎
 boolean CMD_RECEIVE_FLAG = false; //シリアルで文字列を受信したら通信スタート
 #define XAP_BTN 35                // io番号で指定する(pin no.ではない)
 #define STATUS_LED 32
 #define CXS 25           // 1:通常 0:セッティング
-#define BZ_ON 5          // 1:ブザーオン 0:オフ
+#define BZ_ON 5          // 1:ブザーオン 0:オe
 boolean AP_MODE = false; // true:アクセスポイントモード false:通常モード
 
 int CHATTERING_AP[3] = {1, 1, 1}; //チャタリング対策
@@ -121,7 +122,7 @@ const char *str_factory = R"rawliteral(
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
     <br>
     <br>
-    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Measurement Period</a>
+    <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period</a>
     <br>
     <br>
     <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
@@ -163,7 +164,8 @@ const char *str_rex_noise_shake = R"rawliteral(
     </style>
   </head>
   <body>
-    <h1>Home</h1>
+    <h1>ch1:noise ch2:shake</h1>
+    <h1>ch3:average ch4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a>
     <br>
     <br>
@@ -189,14 +191,14 @@ const char *str_normal_4ch_cloud = R"rawliteral(
     </style>
   </head>
   <body>
-    <h1>Home</h1>
+    <h1>4CH NORMAL CLOUD</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a>
     <br>
     <br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
     <br>
     <br>
-    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Measurement Period</a>
+    <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period</a>
     <br>
     <br>
     <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
@@ -221,14 +223,14 @@ const char *str_normal_4ch_local = R"rawliteral(
     </style>
   </head>
   <body>
-    <h1>Home</h1>
+    <h1>4CH NORMAL LOCAL</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a>
     <br>
     <br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
     <br>
     <br>
-    <a href='/ope_param_set/' style='color:navy; font-size:20px;'>Operation Setting</a>
+    <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Operation Setting</a>
     <br>
     <br>
     <a href='/host_ip_set/' style='color:navy; font-size:20px;'>Host IP</a>
@@ -373,7 +375,7 @@ const char *str_host_ip = R"rawliteral(
   </script>
 </html>)rawliteral";
 
-const char *ope_set_str = R"rawliteral(
+const char *str_meas_period = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
   <head>
@@ -392,49 +394,33 @@ const char *ope_set_str = R"rawliteral(
   </head>
   <body>
     <h1>Measurement Period Setting</h1>
-    <p style='color:brown; font-weight: bold'>Measurement Period</p>
     <form>
       <p><table>
         <tr><th>Measurement Period(sec)</th></tr>
         <tr><td><span id="meas_period_val" class="value"></span></td></tr>
       </table></p>
-      <input type='text' name='ope_param' value=""><label>(60 - 3600)</label>
+      <label>input:</label><input type='text' name='ave_normal_param' value=""><label>(60 - 3600)</label>
       <br>
       <br>
-      <p style='color:brown; font-weight: bold'>Average / Normal</p>
-      </table></p>
-      <p><table>
-        <tr><th>CH</th><th>AVERAGE / NORMAL</th></tr>
-        <tr><td>1</td><td><input type="radio" name="average_normal0" value="0">Average<input type="radio" name="average_normal0" value="1">Normal</td></tr>
-        <tr><td>2</td><td><input type="radio" name="average_normal1" value="0">Average<input type="radio" name="average_normal1" value="1">Normal</td></tr>
-        <tr><td>3</td><td><input type="radio" name="average_normal2" value="0">Average<input type="radio" name="average_normal2" value="1">Normal</td></tr>
-        <tr><td>4</td><td><input type="radio" name="average_normal3" value="0">Average<input type="radio" name="average_normal3" value="1">Normal</td></tr>
-      </table></p>
-      <button type='submit' name='ope_para_submit' value='send' style='background-color:#AFA;'>Set</button>
+      <button type='submit' name='meas_period_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
     <br>
     <a href='/' style='color:navy; font-size:20px;'>Home</a>
   </body>
   <script>
-    var ope_param_disp = function () {
+    var disp_meas_period = function () {
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function() {
         if (this.readyState == 4 && this.status == 200) {
-          let cmd = this.responseText.split(',');
+          let cmd = this.responseText;
           console.log(cmd);
-          document.getElementById("meas_period_val").innerHTML = cmd[0];
-          for(let i=0;i<4;i++){
-            let stmp = "average_normal" + i;
-            let elements = document.getElementsByName(stmp);
-            console.log(elements);
-            elements[Number(cmd[i+1])].checked = true;
-          }
+          document.getElementById("meas_period_val").innerHTML = cmd;
         }
       };
-      xhr.open("GET", "/ope_param_disp", true);
+      xhr.open("GET", "/disp_meas_period", true);
       xhr.send(null);
     }
-    setInterval(ope_param_disp, 1000);
+    setInterval(disp_meas_period, 1000);
   </script>
 </html>)rawliteral";
 
@@ -466,7 +452,7 @@ const char *str_ave_normal = R"rawliteral(
         <tr><td>3</td><td><input type="radio" name="average_normal2" value="0">Average<input type="radio" name="average_normal2" value="1">Normal</td></tr>
         <tr><td>4</td><td><input type="radio" name="average_normal3" value="0">Average<input type="radio" name="average_normal3" value="1">Normal</td></tr>
       </table></p>
-      <button type='submit' name='ope_para_submit' value='send' style='background-color:#AFA;'>Set</button>
+      <button type='submit' name='ave_normal_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
     <br>
     <a href='/' style='color:navy; font-size:20px;'>Home</a>
@@ -827,27 +813,18 @@ String store_ch_ls_func()
 // APモード時のコマンドを受け取っていたら、測定周期＋ave/normalを返す ajax
 //(変換値 + large + small)x4ch + 測定周期 = 13個のパラメータ
 //文字列の最初と最後に","があるので注意
-String get_ope_param_func()
+String get_meas_period_func()
 {
   String dst[15]; // split()を呼ぶ前に初期化しなければならない
   int itmp = split(SERIAL_BUF, ',', dst, 15);
   Serial.print("SERIAL_BUF:");
   Serial.println(SERIAL_BUF);
-  Serial.println(itmp);
+  // Serial.println(itmp);
   if (itmp != 15) // 15に分割されなければコマンドではないと判断
   {
     return "";
   }
   String stmp = dst[13]; //測定周期取得
-  stmp += ",";
-  Serial.print("period:");
-  Serial.println(stmp);
-  for (int i = 0; i < 4; i++)
-  {
-    stmp = stmp + PARA.s_n_xave_flg[i] + ","; // ave normal flg追加
-  }
-  Serial.println("get_ope_param_func()");
-  Serial.println(stmp);
   return stmp;
 }
 
@@ -925,14 +902,12 @@ void wifi_access_point()
           {
             int16_t idx_large_small = req_str.indexOf("&large_small=");
             int16_t idx_conv_param = req_str.indexOf("&conv_param=");
-            S_CH_NUM = req_str.substring(idx_ch_num + 15, idx_large_small);
-            S_LARGE_SMALL = req_str.substring(idx_large_small + 13, idx_conv_param);
-            String s_conv_param = req_str.substring(idx_conv_param + 12, req_str.indexOf("&param_submit"));
-            // Serial.println(S_CH_NUM);
-            // Serial.println(s_param_large);
-            // Serial.println(s_param_small);
-            if (is_float(s_conv_param)) // float変換できるなら,measへコマンド送信
+            S_CH_NUM = req_str.substring(idx_ch_num + 15, idx_large_small);                                 // CH No.(1,2,3,4)
+            S_LARGE_SMALL = req_str.substring(idx_large_small + 13, idx_conv_param);                        // 0:large small:1
+            String s_conv_param = req_str.substring(idx_conv_param + 12, req_str.indexOf("&param_submit")); // 変換パラメータ
+            if (is_float(s_conv_param))                                                                     // float変換できるなら,measへコマンド送信
             {
+              // format: CH No., sxl , conv para
               Serial.print("PARAM_SET@");
               Serial.print(S_CH_NUM);
               Serial.print(",");
@@ -967,26 +942,18 @@ void wifi_access_point()
           delay(10);
           client.stop();
         }
-        else if (req_str.indexOf("GET /ope_param_set/?") >= 0) // GET /ope_param_setより先に"?"付きを検出
+        else if (req_str.indexOf("GET /meas_period_set/?") >= 0) // GET /meas_period_setより先に"?"付きを検出
         {
-          Serial.println("GET /ope_param_set/?");
-          pre_url = "GET /ope_param_set";
-          int16_t idx0 = req_str.indexOf("?ope_param=");
+          Serial.println("GET /meas_period_set/?");
+          pre_url = "GET /meas_period_set";
+          int16_t idx0 = req_str.indexOf("?ave_normal_param=");
           String stmp;
-          unsigned int meas_period;
           if (idx0 > 0)
           {
-            stmp = req_str.substring(idx0 + 11, req_str.indexOf("&average_normal0="));
+            stmp = req_str.substring(idx0 + 18, req_str.indexOf("&meas_period_submit"));
             Serial.println(stmp);
-            PARA.s_n_xave_flg[0] = req_str.substring(req_str.indexOf("&average_normal0=") + 17, req_str.indexOf("&average_normal1="));
-            PARA.s_n_xave_flg[1] = req_str.substring(req_str.indexOf("&average_normal1=") + 17, req_str.indexOf("&average_normal2="));
-            PARA.s_n_xave_flg[2] = req_str.substring(req_str.indexOf("&average_normal2=") + 17, req_str.indexOf("&average_normal3="));
-            PARA.s_n_xave_flg[3] = req_str.substring(req_str.indexOf("&average_normal3=") + 17, req_str.indexOf("&ope_para_submit"));
           }
-          Serial.println(PARA.s_n_xave_flg[0]);
-          Serial.println(PARA.s_n_xave_flg[1]);
-          Serial.println(PARA.s_n_xave_flg[2]);
-          Serial.println(PARA.s_n_xave_flg[3]);
+          unsigned int meas_period;
           meas_period = stmp.toInt(); // intに変換できなければ0
           // if (meas_period >= 60 && meas_period <= 3600) //測定周期が正常値なら
           if (meas_period >= 2)
@@ -998,44 +965,13 @@ void wifi_access_point()
             Serial.println(meas_period);     // 測定周期転送
           }
         }
-        else if (req_str.indexOf("GET /ope_param_set/?") >= 0) // GET /ope_param_setより先に"?"付きを検出
+        else if (req_str.indexOf("GET /meas_period_set") >= 0)
         {
-          Serial.println("GET /ope_param_set/?");
-          pre_url = "GET /ope_param_set";
-          int16_t idx0 = req_str.indexOf("?ope_param=");
-          String stmp;
-          unsigned int meas_period;
-          if (idx0 > 0)
-          {
-            stmp = req_str.substring(idx0 + 11, req_str.indexOf("&average_normal0="));
-            Serial.println(stmp);
-            PARA.s_n_xave_flg[0] = req_str.substring(req_str.indexOf("&average_normal0=") + 17, req_str.indexOf("&average_normal1="));
-            PARA.s_n_xave_flg[1] = req_str.substring(req_str.indexOf("&average_normal1=") + 17, req_str.indexOf("&average_normal2="));
-            PARA.s_n_xave_flg[2] = req_str.substring(req_str.indexOf("&average_normal2=") + 17, req_str.indexOf("&average_normal3="));
-            PARA.s_n_xave_flg[3] = req_str.substring(req_str.indexOf("&average_normal3=") + 17, req_str.indexOf("&ope_para_submit"));
-          }
-          Serial.println(PARA.s_n_xave_flg[0]);
-          Serial.println(PARA.s_n_xave_flg[1]);
-          Serial.println(PARA.s_n_xave_flg[2]);
-          Serial.println(PARA.s_n_xave_flg[3]);
-          meas_period = stmp.toInt(); // intに変換できなければ0
-          // if (meas_period >= 60 && meas_period <= 3600) //測定周期が正常値なら
-          if (meas_period >= 2)
-          {
-            eeprom_write();                  // ave normalはcommで保存
-            Serial2.print("OPE_PARAM_SET@"); // measへコマンド転送
-            Serial2.println(meas_period);    // 測定周期転送
-            Serial.print("OPE_PARAM_SET@");  // measへコマンド転送 debug用
-            Serial.println(meas_period);     // 測定周期転送
-          }
-        }
-        else if (req_str.indexOf("GET /ope_param_set") >= 0)
-        {
-          Serial.println("GET /ope_param_set");
-          pre_url = "GET /ope_param_set";
+          Serial.println("GET /meas_period_set");
+          pre_url = "GET /meas_period_set";
           PAGE_NUM = 1;
           client.print(html_res_head);
-          client.print(ope_set_str);
+          client.print(str_meas_period);
           delay(10);
           client.stop();
         }
@@ -1045,10 +981,14 @@ void wifi_access_point()
           PARA.s_n_xave_flg[0] = req_str.substring(req_str.indexOf("?average_normal0=") + 17, req_str.indexOf("&average_normal1="));
           PARA.s_n_xave_flg[1] = req_str.substring(req_str.indexOf("&average_normal1=") + 17, req_str.indexOf("&average_normal2="));
           PARA.s_n_xave_flg[2] = req_str.substring(req_str.indexOf("&average_normal2=") + 17, req_str.indexOf("&average_normal3="));
-          PARA.s_n_xave_flg[3] = req_str.substring(req_str.indexOf("&average_normal3=") + 17, req_str.indexOf("&ope_para_submit"));
-          Serial.println("aaaaaaaaaaaaaaa");
-          Serial.println(PARA.s_n_xave_flg[0]);
-          Serial.println("aaaaaaaaaaaaaaa");
+          PARA.s_n_xave_flg[3] = req_str.substring(req_str.indexOf("&average_normal3=") + 17, req_str.indexOf("&ave_normal_submit"));
+          for (int i = 0; i < 4; i++) //"0" or "1" 以外がセットされたら"0"にする
+          {
+            if (PARA.s_n_xave_flg[i] != "0" && PARA.s_n_xave_flg[i] != "1")
+            {
+              PARA.s_n_xave_flg[i] = "0";
+            }
+          }
           eeprom_write();
         }
         else if (req_str.indexOf("GET /ave_normal_set") >= 0)
@@ -1121,10 +1061,10 @@ void wifi_access_point()
           delay(10);
           client.stop();
         }
-        else if (req_str.indexOf("GET /ope_param_disp") >= 0) // ajax
+        else if (req_str.indexOf("GET /disp_meas_period") >= 0) // ajax
         {
           String stmp;
-          stmp = get_ope_param_func();
+          stmp = get_meas_period_func();
           PAGE_NUM = 1;
           client.print(html_res_head2); // plain text
           client.print(stmp.c_str());   // ajax 返り値
@@ -1357,9 +1297,9 @@ void wifi_access_point()
           {
             client.print(str_calibration);
           }
-          else if (pre_url.indexOf("GET /ope_param_set") >= 0)
+          else if (pre_url.indexOf("GET /meas_period_set") >= 0)
           {
-            client.print(ope_set_str);
+            client.print(str_meas_period);
           }
           else if (pre_url.indexOf("GET /host_ip_set") >= 0)
           {
@@ -1435,8 +1375,8 @@ String HTML_Select_Box_str(String Sel_Ssid)
   }
   str += "</select><br>\r\n";
   // str += "Password<br><input type='password' name='pass1'>\r\n";
-  // str += "Password<br><input type='text' name='pass1' value='diikr7csk5cxf'>\r\n"; //デバッグ用初期値
-  str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; //デバッグ用初期値
+  // str += "Password<br><input type='text' name='pass1' value='diikr7csk5cxf'>\r\n"; //debug用初期値
+  str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; // debug用初期値
   // str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=document.F_ssid_select.ssid_select.value;'>Start connection</button>\r\n";
   str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;'>SET</button>\r\n";
   str += "<br>";
@@ -1693,7 +1633,12 @@ void aws_connect(void)
 
 void setup()
 {
+#ifdef VST100
+  pinMode(SDA_PIN, OUTPUT);
+  pinMode(SCL_PIN, OUTPUT);
+#else
   Wire.begin(); //使用しないが接続されているの
+#endif
   Serial.begin(115200);
   Serial2.begin(115200);
   // Serial1.begin(115200, SERIAL_8N1, RX1_PIN, TX1_PIN); // commとの通信
@@ -1726,7 +1671,7 @@ void setup()
     }
   }
   Serial.println("");
-  Serial.println("2022-03-23");
+  Serial.println("2022-04-12");
   Serial.println(CLIENT_ID);
   eeprom_read();
   disp_param();
@@ -1872,7 +1817,9 @@ void loop()
 
       char st_ch1[200], st_ch2[200], st_ch3[10], st_ch4[10]; // mqtt送信用バッファ
       char pub_msg[500];
-      if (Model_no == 0) // rex 騒音振動
+      // Serial.print("Model No.");  //debug
+      // Serial.println(PARA.model_no);
+      if (PARA.model_no == 0) // rex 騒音振動
       {
         dt_ch1.toCharArray(st_ch1, 200);
         dt_ch2.toCharArray(st_ch2, 200);
@@ -1880,7 +1827,7 @@ void loop()
         dst[24].toCharArray(st_ch4, 10);
         sprintf(pub_msg, "{\"id\":\"rx01\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\"}", st_ch1, st_ch2, st_ch3, st_ch4);
       }
-      else if (Model_no == 1) //ノーマル4ch
+      else if (PARA.model_no == 1) //ノーマル4ch
       {
         // ch1
         if (PARA.s_n_xave_flg[0] == "1")
@@ -1916,16 +1863,18 @@ void loop()
         }
         else
         {
-          dst[24].toCharArray(st_ch3, 200);
+          dst[24].toCharArray(st_ch4, 200);
         }
         sprintf(pub_msg, "{\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\"}", st_ch1, st_ch2, st_ch3, st_ch4);
       }
-      wifi_connect(); // wifiの接続がなければ接続しに行く
-                      // if (PARA.cxl == 1)           //クラウドなら
-                      // {
-      // aws_mqtt_publish(pub_msg);   // awsへ送信 送信できなければリセットがかかる
+      wifi_connect();         // wifiの接続がなければ接続しに行く
+      if (PARA.model_no != 2) //クラウドなら(Model No.2 4ch normal local以外はクラウドへ転送)
+      {
+        aws_mqtt_publish(pub_msg); // awsへ送信 送信できなければリセットがかかる
+      }
+      // Serial.println(pub_msg);     // debug
+      // Serial.println("ACK_COMM");  // debug
       Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
-      Serial.println("ACK_COMM");  //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
       // }
       // else //ローカルなら
       // {
