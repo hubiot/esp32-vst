@@ -1240,8 +1240,8 @@ void loop()
       Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
       if (PARA.cxl == 1)           //クラウドなら
       {
-        aws_mqtt_publish(pub_msg); // awsへ送信 送信できなければリセットがかかる
-        // Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
+        aws_mqtt_publish(pub_msg);   // awsへ送信 送信できなければリセットがかかる
+        Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
       }
       // else //ローカルなら
       // {
