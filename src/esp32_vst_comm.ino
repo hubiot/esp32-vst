@@ -45,8 +45,8 @@ para_d PARA;
 // const char *pubTopic = "pub01"; //クラウドデバッグ環境用
 const char *pubTopic = "pub_prod"; //クラウド製品版
 
-// #define SDA_PIN 21
-// #define SCL_PIN 22
+#define SDA_PIN 21
+#define SCL_PIN 22
 
 // String rootCA_file = "/AmazonRootCA1.pem";        // rootCA
 // String certificate_file = "/certificate.pem.crt"; // certificate
@@ -464,7 +464,7 @@ void wifi_access_point()
     String pass_tmp; // password temporary
     while (client.connected())
     {
-      while (client.available())
+      while (client.available()) // decode
       {
         req_str = client.readStringUntil('\n');
         if (req_str.indexOf("\r") == 0)
@@ -535,24 +535,6 @@ void wifi_access_point()
           Serial.print(stmp.c_str());
           delay(10);
           client.stop();
-        }
-        else if (req_str.indexOf("GET / ") >= 0)
-        {
-          PAGE_NUM = 0;
-          Serial.println("--------------- GET Request Receive from Clinet");
-          while (client.available())
-          {
-            char c = client.read();
-            Serial.write(c);
-          }
-          Serial.println("--------------- GET Request Receive Finish");
-          html_send(false, "Connection close", "Connection close", "#FFF", html_res_head, html_tag1, html_tag2);
-
-          delay(10);
-          client.stop();
-          Serial.println("client disonnected");
-          delay(10);
-          req_str = "";
         }
         else if (req_str.indexOf("GET /?") >= 0)
         {
@@ -709,6 +691,25 @@ void wifi_access_point()
           delay(10);
           req_str = "";
         }
+        else if (req_str.indexOf("GET / ") >= 0)
+        {
+          wifi_scan();
+          PAGE_NUM = 0;
+          Serial.println("--------------- GET Request Receive from Clinet");
+          while (client.available())
+          {
+            char c = client.read();
+            Serial.write(c);
+          }
+          Serial.println("--------------- GET Request Receive Finish");
+          html_send(false, "Connection close", "Connection close", "#FFF", html_res_head, html_tag1, html_tag2);
+
+          delay(10);
+          client.stop();
+          Serial.println("client disonnected");
+          delay(10);
+          req_str = "";
+        }
         else if (req_str.indexOf("GET /favicon") >= 0)
         {
           PAGE_NUM = 0;
@@ -804,37 +805,40 @@ String HTML_Select_Box_str(String Sel_Ssid)
   str += "</span>\r\n";
   return str;
 }
-void wifi_scan(uint32_t scan_interval)
+void wifi_scan(void)
 {
-  if ((First_Scan_Set == true) || ((millis() - scanLastTime) > scan_interval))
-  {
-    Serial.println("scan start");
+  // static boolean FIRST_SCAN_FLAG = true;
+  // Serial.println("wifi scan");
+  // if ((FIRST_SCAN_FLAG == true) || ((millis() - scanLastTime) > scan_interval))
+  // if ((millis() - scanLastTime) > scan_interval)
+  // {
+  Serial.println("scan start");
 
-    // WiFi.scanNetworks will return the number of networks found
-    ssid_num = WiFi.scanNetworks();
-    if (ssid_num > 30)
-      ssid_num = 30;
-    Serial.println("scan done\r\n");
-    if (ssid_num == 0)
-    {
-      Serial.println("no networks found\r\n");
-    }
-    else
-    {
-      Serial.printf("%d networks found\r\n\r\n", ssid_num);
-      for (int i = 0; i < ssid_num; ++i)
-      {
-        ssid_str[i] = WiFi.SSID(i);
-        String wifi_auth_open = ((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
-        ssid_rssi_str[i] = ssid_str[i] + " (" + WiFi.RSSI(i) + "dBm)" + wifi_auth_open;
-        Serial.printf("%d: %s\r\n", i, ssid_rssi_str[i].c_str());
-        delay(10);
-      }
-    }
-    Serial.println("");
-    scanLastTime = millis();
-    First_Scan_Set = false;
+  // WiFi.scanNetworks will return the number of networks found
+  ssid_num = WiFi.scanNetworks();
+  if (ssid_num > 30)
+    ssid_num = 30;
+  Serial.println("scan done\r\n");
+  if (ssid_num == 0)
+  {
+    Serial.println("no networks found\r\n");
   }
+  else
+  {
+    Serial.printf("%d networks found\r\n\r\n", ssid_num);
+    for (int i = 0; i < ssid_num; ++i)
+    {
+      ssid_str[i] = WiFi.SSID(i);
+      String wifi_auth_open = ((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
+      ssid_rssi_str[i] = ssid_str[i] + " (" + WiFi.RSSI(i) + "dBm)" + wifi_auth_open;
+      Serial.printf("%d: %s\r\n", i, ssid_rssi_str[i].c_str());
+      delay(10);
+    }
+  }
+  Serial.println("");
+  // scanLastTime = millis();
+  // FIRST_SCAN_FLAG = false;
+  // }
 }
 //*******************************************
 void favicon_response()
@@ -1031,7 +1035,7 @@ void aws_connect(void)
 
 void setup()
 {
-  Wire.begin(); //使用しないが接続されているの
+  // Wire.begin(); //使用しないが接続されているの
   Serial.begin(115200);
   Serial2.begin(115200);
   // Serial1.begin(115200, SERIAL_8N1, RX1_PIN, TX1_PIN); // commとの通信
@@ -1044,8 +1048,8 @@ void setup()
   //     delay(100);
   // }
   // WireSlave.onReceive(receiveEvent);
-  // pinMode(SDA_PIN, INPUT_PULLUP);
-  // pinMode(SCL_PIN, INPUT_PULLUP);
+  pinMode(SDA_PIN, INPUT_PULLUP);
+  pinMode(SCL_PIN, INPUT_PULLUP);
   // pinMode(SDA_PIN_NG, INPUT_PULLUP);
   // pinMode(SCL_PIN_NG, INPUT_PULLUP);
   // Wire.begin(); //I2Cマスターとして動作
@@ -1146,7 +1150,7 @@ void setup()
 void loop()
 {
   CHATTERING_AP[CHATTERING_CNT++] = digitalRead(XAP_BTN);
-  if (CHATTERING_CNT > 3)
+  if (CHATTERING_CNT >= 3)
   {
     CHATTERING_CNT = 0;
   }
@@ -1184,10 +1188,10 @@ void loop()
     digitalWrite(CXS, LOW);         //セッティングモード
     digitalWrite(STATUS_LED, HIGH); // status led on
     // Serial.println(PAGE_NUM);
-    if (PAGE_NUM == 0)
-    {
-      wifi_scan(30000);
-    }
+    // if (PAGE_NUM == 0)
+    // {
+    //   wifi_scan(30000);
+    // }
   }
   else if (CMD_RECEIVE_FLAG) //コマンドを受け取っていたら
   {
