@@ -1,12 +1,11 @@
 // ORG 2021/08/04 adachi
+// 2021/12/15
 // rex 騒音振動用 APボタンにチャタリング対策
 //パスワードに `@0 の3文字でローカルに切り替え ,``` パラメータ表示, `@r 実験用RUT240WiFi設定, `@b 実験用BaffaloルータWiFi設定
 //プロジェクトフォルダ(dataではない)にaws.hに認証データを入れておく
 // aws証明書は、ソースの中にいれた
 // esp32のflashを暗号化機能を使えば、独自に暗号化するより安全と判断
 //証明書を変更するには再コンパイルが必要
-
-#define VST100 1
 
 #include "esp_system.h"
 #include <WiFi.h>
@@ -21,10 +20,13 @@
 // #include <ArduinoJson.h>
 #include <EEPROM.h> //host ip 保管用
 #include "aws.h"    //aws証明書
-char SC_BUF[200];   // serial char buff
-int SCB_CNT = 0;    // serial char counter
-String SERIAL_BUF;
+// #include "WireSlave.h"
+// #define I2C_SLAVE_ADDR 0x08
+char SC_BUF[200]; // serial char buff
+int SCB_CNT = 0;  // serial char cnt
+String SERIAL_BUF, PRE_SERIAL_BUF;
 int PAGE_NUM = 0; // 0:wifi set 1:parameter set
+void receiveEvent(int howMany);
 
 String S_CH_NUM = "1";      // ch1 = 1
 String S_LARGE_SMALL = "0"; // 0:large 1:small
@@ -64,14 +66,12 @@ String Selected_SSID_str;
 String Sel_SSID_PASS_str;
 String CLIENT_ID; // mac addressをユニークなIDとして使用
 uint32_t scanLastTime = 0;
-// eeprom
-// String S_n_xave_flg[4]; //演算 0:ave 1:normal ch1,2,3,4のそれぞれにセット
-// boolean FIRST_SCAN_FLAG = true;  //外部変数だとfalseにセットしてもなぜかtrueに戻されてしまう　謎
-boolean CMD_RECEIVE_FLAG = false; //シリアルで文字列を受信したら通信スタート
-#define XAP_BTN 35                // io番号で指定する(pin no.ではない)
+boolean First_Scan_Set = true;
+boolean CMD_RECEIVE_FLAG = false;
+#define XAP_BTN 35 // io番号で指定する(pin no.ではない)
 #define STATUS_LED 32
 #define CXS 25           // 1:通常 0:セッティング
-#define BZ_ON 5          // 1:ブザーオン 0:オe
+#define BZ_ON 5          // 1:ブザーオン 0:オフ
 boolean AP_MODE = false; // true:アクセスポイントモード false:通常モード
 
 int CHATTERING_AP[3] = {1, 1, 1}; //チャタリング対策
@@ -80,6 +80,84 @@ int CHATTERING_CNT = 0;           //チャタリング対策
 // boolean tsf = false; //本体起動から10秒経ったらtrueにする
 
 /* HTMLページ */
+const char *strHtml = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>Calibration</h1>
+    <p style='color:brown; font-weight: bold'>CONVERTED DATA / PARAMETER(LARGE/SMALL)</p>
+    <p><table>
+      <tr><th>CHANNEL</th><th>DATA</th><th>LARGE</th><th>SMALL</th></tr>
+      <tr><td>CH1</td><td><span id="val_ch1" class="value">%CH1%</span></td><td><span id="pl_ch1" class="value">%PL_CH1%</span></td><td><span id="ps_ch1" class="value">%PS_CH1%</span></td></tr>
+      <tr><td>CH2</td><td><span id="val_ch2" class="value">%CH2%</span></td><td><span id="pl_ch2" class="value">%PL_CH2%</span></td><td><span id="ps_ch2" class="value">%PS_CH2%</span></td></tr>
+      <tr><td>CH3</td><td><span id="val_ch3" class="value">%CH3%</span></td><td><span id="pl_ch3" class="value">%PL_CH3%</span></td><td><span id="ps_ch3" class="value">%PS_CH3%</span></td></tr>
+      <tr><td>CH4</td><td><span id="val_ch4" class="value">%CH4%</span></td><td><span id="pl_ch4" class="value">%PL_CH4%</span></td><td><span id="ps_ch4" class="value">%PS_CH4%</span></td></tr>
+    </table></p>
+    <p style='color:brown; font-weight: bold'>Scaling Parameter Set</p>
+    <form name='paremeter_set'>
+      <p><table>
+        <tr><th sytle='width: 30px'>CH</th><th>LARGE/SMALL</th><th>PARAMETER</th><th style='border-top-style:none'></th></tr>
+        <tr><td sytle='width: 30px'>
+          <select name="channel_number">
+          <option value="1">CH1</option>
+          <option value="2">CH2</option>
+          <option value="3">CH3</option>
+          <option value="4">CH4</option>
+          </select>
+        </td>
+        <td sytle='width: 30px'>
+          <select name="large_small">
+          <option value="large">LARGE</option>
+          <option value="small">SMALL</option>
+          </select>
+        </td>
+        <td><input type='text' name='conv_param'></td><td><button type='submit' name='param_submit' value='send' style='background-color:#AFA;'>Set</button></td></tr>
+      </table></p>
+    </form>
+    <br>
+    <a href='/' style='color:navy; font-size:20px;'>WiFi SET</a>
+  </body>
+  <script>
+    var get_meas_param = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let val = this.responseText.split(',');
+          document.getElementById("val_ch1").innerHTML = val[0];
+          document.getElementById("pl_ch1").innerHTML = val[1];
+          document.getElementById("ps_ch1").innerHTML = val[2];
+          document.getElementById("val_ch2").innerHTML = val[3];
+          document.getElementById("pl_ch2").innerHTML = val[4];
+          document.getElementById("ps_ch2").innerHTML = val[5];
+          document.getElementById("val_ch3").innerHTML = val[6];
+          document.getElementById("pl_ch3").innerHTML = val[7];
+          document.getElementById("ps_ch3").innerHTML = val[8];
+          document.getElementById("val_ch4").innerHTML = val[9];
+          document.getElementById("pl_ch4").innerHTML = val[10];
+          document.getElementById("ps_ch4").innerHTML = val[11];
+        }
+      };
+      xhr.open("GET", "/get_meas_param", true);
+      xhr.send(null);
+    }
+    setInterval(get_meas_param, 1000);
+  </script>
+</html>)rawliteral";
+
 const char *str_factory = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
@@ -230,10 +308,10 @@ const char *str_normal_4ch_local = R"rawliteral(
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
     <br>
     <br>
-    <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Operation Setting</a>
+    <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period Setting</a>
     <br>
     <br>
-    <a href='/host_ip_set/' style='color:navy; font-size:20px;'>Host IP</a>
+    <a href='/host_ip_set/' style='color:navy; font-size:20px;'>Server IP</a>
   </body>
 </html>)rawliteral";
 
@@ -348,13 +426,16 @@ const char *str_host_ip = R"rawliteral(
     </style>
   </head>
   <body>
-    <h1>Host IP Setting</h1>
+    <h1>Server IP Setting</h1>
     <form>
-      <label>Host IP</label>
+      <label>Server IP</label>
       <input type='text' name='host_ip_param' id='host_ip_param1' value="">
       <br>
       <br>
       <button type='submit' name='host_ip_para_submit' value='send' style='background-color:#AFA;'>Set</button>
+    </form>
+    <br>
+    <br>
     <a href='/' style='color:navy; font-size:20px;'>Home</a>
   </body>
   <script>
@@ -549,7 +630,6 @@ boolean eeprom_read(void)
     return true;
   }
 }
-
 //文字列がfloatかチェック(0-9 & "."が一つ)
 boolean is_float(String str)
 {
@@ -613,7 +693,6 @@ int split(String data, char delimiter, String *dst, int max)
   }
   return (index + 1);
 }
-
 //正常なipアドレスかチェックする
 boolean chk_host_ip(String *str)
 {
@@ -641,7 +720,6 @@ boolean chk_host_ip(String *str)
   }
   return true; //正常なIPアドレスだとtrue
 }
-
 //正常なアドレスかチェックする
 // mで4つに区切れていて、それぞれが数値ならtrue,そうでなければfalse
 boolean chk_para(void)
@@ -665,20 +743,6 @@ boolean chk_para(void)
   {
     return false;
   }
-}
-
-//数値かどうか判別
-//エラーならfalseを返す,マイナスは対応していない
-boolean chk_number(String val)
-{
-  for (int i = 0; i < val.length(); i++)
-  {
-    if (!is_number(val.substring(i, 1))) // 0～9の文字でなければ
-    {
-      return false;
-    }
-  }
-  return true;
 }
 
 // host ip の項目に入っている文字列がm区切りで、4つの数値が入っていれば、その値をPARAに設定する
@@ -805,27 +869,203 @@ String format_pass(String *pass_tmp)
   return pw;
 }
 
-String store_ch_ls_func()
+/* 計測処理ロジック */
+String get_meas_param()
 {
-  String cur_ch = "0", cur_ls = "0"; // ch1:'0', ch2:'1', , , ch4:'3' cur_ls: '0':large, '1':small
+  String str = "";
+  String dst[14];       // split()を呼ぶ前に初期化しなければならない
+  if (CMD_RECEIVE_FLAG) //コマンドを受け取っていたら
+  {
+    CMD_RECEIVE_FLAG = false;
+    int itmp = split(SERIAL_BUF, ',', dst, 14);
+    if (itmp != 14) // 14に分割されなければコマンドではないと判断
+    {
+      return "";
+    }
+    for (itmp = 1; itmp <= 12; itmp++) //先頭の","を除いてajaxにわたす文字列作成
+    {
+      str += dst[itmp];
+      str += ","; //最後に","があってもajaxで無視される
+    }
+    return str;
+  }
+  else //コマンドを受け取っていなければ
+  {
+    return PRE_SERIAL_BUF; //前回のコマンドを返す
+  }
 }
 
-// APモード時のコマンドを受け取っていたら、測定周期＋ave/normalを返す ajax
-//(変換値 + large + small)x4ch + 測定周期 = 13個のパラメータ
-//文字列の最初と最後に","があるので注意
-String get_meas_period_func()
+String html_res_head = "HTTP/1.1 200 OK\r\nContent-type:text/html\r\nConnection:close\r\n\r\n";
+String html_res_head2 = "HTTP/1.1 200 OK\r\nContent-type:text/plain\r\nConnection:close\r\n\r\n";
+String html_tag1 = "<meta name='viewport' content='initial-scale=1.5'>\r\n</head>\r\n\r\n<body style='background:#fff; color:#000; font-size:100%;'>\r\nWiFi SET<br>\r\nSSID";
+String html_tag2 = "\r\n</body>\r\n</html>\r\n\r\n";
+
+void html_send(boolean sta_connected, String message1, String message2, String color, String html_res_head, String html_tag1, String html_tag2)
 {
-  String dst[15]; // split()を呼ぶ前に初期化しなければならない
-  int itmp = split(SERIAL_BUF, ',', dst, 15);
-  Serial.print("SERIAL_BUF:");
-  Serial.println(SERIAL_BUF);
-  // Serial.println(itmp);
-  if (itmp != 15) // 15に分割されなければコマンドではないと判断
+  client.print(html_res_head);
+  client.print(html_tag1);
+  // client.print(HTML_Select_Box_str("!xxxx", message1));
+  client.print(HTML_Select_Box_str(message1));
+  client.printf("<p style='color:%s; font-size:80%%'>%s</p>\r\n", color.c_str(), message2.c_str()); //%%と重ねなければならない
+  if (sta_connected == true)
   {
-    return "";
+    client.print("<span style='font-size:80%'>IP = ");
+    client.print(LIP);
+    client.print("<br>");
+    client.print("</span>\r\n");
   }
-  String stmp = dst[13]; //測定周期取得
-  return stmp;
+  client.print(html_tag2);
+  Serial.print(html_res_head);
+  Serial.print(html_tag1);
+  // Serial.print(HTML_Select_Box_str("!xxxx", message1));
+  Serial.print(HTML_Select_Box_str(message1));
+  Serial.printf("<p style='color:%s; font-size:80%%'>%s</p>\r\n", color.c_str(), message2.c_str());
+  if (sta_connected == true)
+  {
+    Serial.print("<span style='font-size:80%'>IP = ");
+    Serial.print(LIP);
+    Serial.print("</span>\r\n");
+  }
+  Serial.print(html_tag2);
+}
+
+String HTML_Select_Box_str(String Sel_Ssid)
+{
+  // String HTML_Select_Box_str(String button_id, String Sel_Ssid){
+  String str = "";
+  String selected_str = "";
+  str += "<form name='F_ssid_select'>\r\n";
+  str += "  <select name='ssid_select'>\r\n";
+  for (int i = 0; i < ssid_num; i++)
+  {
+    if (Selected_SSID_str == ssid_str[i])
+    {
+      selected_str = " selected";
+    }
+    else
+    {
+      selected_str = "";
+    }
+    str += "    <option value=" + ssid_str[i] + selected_str + ">" + ssid_rssi_str[i] + "</option>\r\n";
+  }
+  str += "</select><br>\r\n";
+  // str += "Password<br><input type='password' name='pass1'>\r\n";
+  // str += "Password<br><input type='text' name='pass1' value='diikr7csk5cxf'>\r\n"; //debug用初期値
+  str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; // debug用初期値
+  // str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=document.F_ssid_select.ssid_select.value;'>Start connection</button>\r\n";
+  str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;'>SET</button>\r\n";
+  str += "<br>";
+  // str += "<br><button type='submit' name='unit_reset' value='send' style='background-color:#FAF;'>RESET</button>\r\n";
+  str += "</form><br>\r\n";
+  str += "<br>";
+  str += "<a href=\"/\" style=\"color:navy\">Home</a>";
+  // str += "<form name='F_connection_close'>\r\n";
+  // str += "  <button type='submit' name='connection_close' value='send' style='background-color:#FAA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=\"Connection close\";'>Connection Close</button>\r\n";
+  // str += "</form>\r\n";
+  // str += "<br>  Selected SSID<br><span id='ssid_sel_txt'  style='font-size:80%;'>";
+  // str += "<br><span id='ssid_sel_txt'  style='font-size:80%;'>";
+
+  // str += Sel_Ssid;
+  // str += "Selected SSID" + Sel_Ssid;
+  str += "</span>\r\n";
+  return str;
+}
+
+void wifi_set_proc()
+{
+  Serial.println("GET /wifi_set");
+  while (client.available())
+  {
+    char c = client.read();
+    Serial.write(c);
+  }
+  html_send(false, "Connection close", "Connection close", "#FFF", html_res_head, html_tag1, html_tag2);
+
+  delay(10);
+  client.stop();
+  Serial.println("client disonnected");
+  delay(10);
+}
+
+void wifi_set_submit(String req_str)
+{
+  String pass_tmp;
+  int16_t getTXT_select = req_str.indexOf("?ssid_select=");
+  int16_t getTXT_close = req_str.indexOf("connection_close=");
+  // int16_t getTXT_u_reset = req_str.indexOf("unit_reset");
+  if (getTXT_select > 0)
+  {
+    Selected_SSID_str = req_str.substring(getTXT_select + 13, req_str.indexOf("&pass1"));
+    pass_tmp = req_str.substring(req_str.indexOf("&pass1=") + 7, req_str.indexOf("&ssid_sel_submit")); // ssid取得
+  }
+  Sel_SSID_PASS_str = format_pass(&pass_tmp); //アスキーコードを記号に戻す
+  //コマンド抽出
+  if (Sel_SSID_PASS_str == "`@r") //`@r なら動作確認用RUT240セット
+  {
+    Selected_SSID_str = "RUT240_8B10";
+    Sel_SSID_PASS_str = "k5N0XpQb";
+  }
+  else if (Sel_SSID_PASS_str == "`@b") //`@b なら動作確認用wifiセット
+  {
+    Selected_SSID_str = "Buffalo-G-FBF8";
+    Sel_SSID_PASS_str = "ck8m7ah5v6dkw";
+  }
+  Serial.println(Selected_SSID_str);
+  Serial.println(Sel_SSID_PASS_str);
+  if (getTXT_close < 0)
+  {
+    Serial.printf("Selected_SSID_str = %s\r\n", Selected_SSID_str.c_str());
+    Serial.printf("Sel_SSID_PASS_str = %s\r\n", Sel_SSID_PASS_str.c_str());
+
+    while (client.available())
+    {
+      char c = client.read();
+      Serial.write(c);
+    }
+    delay(500); // Important! This delay is necessary to connect to the Access Point.
+
+    WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
+    uint32_t timeout = millis();
+    while (1)
+    {
+      boolean exit_flag = false;
+      if (WiFi.status() != WL_CONNECTED)
+      {
+        Serial.println("no connect");
+        delay(1000);
+        if (millis() - timeout > 15000)
+        {
+          html_send(false, Selected_SSID_str, "TIME OUT", "#F00", html_res_head, html_tag1, html_tag2);
+          exit_flag = true;
+        }
+      }
+      else
+      {
+        Serial.println("connect");
+        LIP = WiFi.localIP();
+        Serial.println("\r\nWiFi connected");
+        Serial.print("Local IP address: ");
+        Serial.println(LIP);
+        Serial.printf("\r\n-----------%s Connected!\r\n", Selected_SSID_str.c_str());
+        html_send(true, Selected_SSID_str, "Set OK! Push RESET<br>", "#00F", html_res_head, html_tag1, html_tag2);
+        exit_flag = true;
+      }
+      if (exit_flag)
+      {
+        break;
+      }
+    }
+  }
+  else
+  {
+    html_send(false, "---", "Closed!", "#F00", html_res_head, html_tag1, html_tag2);
+    WiFi.disconnect(false); // false=WiFi_ON , true=WiFi_OFF
+  }
+
+  delay(10);
+  client.stop();
+  Serial.println("client disonnected");
+  delay(10);
 }
 
 // APモード時のコマンドを受け取っていたら、先頭の","を除いて返す ajax
@@ -848,97 +1088,168 @@ String get_trans_param_func()
   return str;
 }
 
+void param_set_submit(String req_str)
+{
+  Serial.println("param_set");
+  PAGE_NUM = 1;
+  int16_t idx_ch_num = req_str.indexOf("channel_number=");
+  int16_t getTXT_u_reset = req_str.indexOf("unit_reset");
+  if (getTXT_u_reset > 0)
+  {
+    esp_restart();
+  }
+  if (idx_ch_num > 0)
+  {
+    int16_t idx_large_small = req_str.indexOf("&large_small=");
+    int16_t idx_conv_param = req_str.indexOf("&conv_param=");
+    S_CH_NUM = req_str.substring(idx_ch_num + 15, idx_large_small);                                 // CH No.(1,2,3,4)
+    S_LARGE_SMALL = req_str.substring(idx_large_small + 13, idx_conv_param);                        // 0:large small:1
+    String s_conv_param = req_str.substring(idx_conv_param + 12, req_str.indexOf("&param_submit")); // 変換パラメータ
+    if (is_float(s_conv_param))                                                                     // float変換できるなら,measへコマンド送信
+    {
+      // format: CH No., sxl , conv para
+      Serial.print("PARAM_SET@");
+      Serial.print(S_CH_NUM);
+      Serial.print(",");
+      Serial.print(S_LARGE_SMALL);
+      Serial.print(",");
+      Serial.println(s_conv_param);
+      Serial2.print("PARAM_SET@");
+      Serial2.print(S_CH_NUM);
+      Serial2.print(",");
+      Serial2.print(S_LARGE_SMALL);
+      Serial2.print(",");
+      Serial2.println(s_conv_param);
+      // Serial1.print("PARAM_SET@");
+      // Serial1.print(S_CH_NUM);
+      // Serial1.print(",");
+      // Serial1.print(S_LARGE_SMALL);
+      // Serial1.print(",");
+      // Serial1.println(s_conv_param);
+    }
+    else
+    {
+      Serial.println("param error");
+    }
+  }
+}
+void ave_normal_submit(String req_str)
+{
+  int16_t idx0 = req_str.indexOf("?ave_normal_param=");
+  String stmp;
+  if (idx0 > 0)
+  {
+    stmp = req_str.substring(idx0 + 18, req_str.indexOf("&meas_period_submit"));
+    Serial.println(stmp);
+  }
+  unsigned int meas_period;
+  meas_period = stmp.toInt(); // intに変換できなければ0
+  // if (meas_period >= 60 && meas_period <= 3600) //測定周期が正常値なら
+  if (meas_period >= 2)
+  {
+    eeprom_write();                  // ave normalはcommで保存
+    Serial2.print("OPE_PARAM_SET@"); // measへコマンド転送
+    Serial2.println(meas_period);    // 測定周期転送
+    Serial.print("OPE_PARAM_SET@");  // measへコマンド転送 debug用
+    Serial.println(meas_period);     // 測定周期転送
+  }
+}
+// APモード時のコマンドを受け取っていたら、測定周期＋ave/normalを返す ajax
+//(変換値 + large + small)x4ch + 測定周期 = 13個のパラメータ
+//文字列の最初と最後に","があるので注意
+String get_meas_period_func()
+{
+  String dst[15]; // split()を呼ぶ前に初期化しなければならない
+  int itmp = split(SERIAL_BUF, ',', dst, 15);
+  Serial.print("SERIAL_BUF:");
+  Serial.println(SERIAL_BUF);
+  // Serial.println(itmp);
+  if (itmp != 15) // 15に分割されなければコマンドではないと判断
+  {
+    return "";
+  }
+  String stmp = dst[13]; //測定周期取得
+  return stmp;
+}
+
 void wifi_access_point()
 {
   static String pre_url; // req_strにurl以外が入る場合がある。その場合は、前のurlを表示する
-  String html_res_head = "HTTP/1.1 200 OK\r\n";
-  html_res_head += "Content-type:text/html\r\n";
-  html_res_head += "Connection:close\r\n\r\n";
-  String html_tag1 = "<!DOCTYPE html>\r\n<html>\r\n<head>\r\n";
-  html_tag1 += "<meta name='viewport' content='initial-scale=1.5'>\r\n";
-  html_tag1 += "</head>\r\n\r\n";
-  // html_tag1 += "<body style='background:#000; color:#fff; font-size:100%;'>\r\n";
-  html_tag1 += "<body style='background:#fff; color:#000; font-size:100%;'>\r\n";
-  html_tag1 += "WiFi SET<br>\r\n";
-  html_tag1 += "SSID";
-  String html_tag2 = "\r\n</body>\r\n</html>\r\n\r\n";
+  // String html_res_head = "HTTP/1.1 200 OK\r\n";
+  // html_res_head += "Content-type:text/html\r\n";
+  // html_res_head += "Connection:close\r\n\r\n";
+  // String html_tag1 = "<!DOCTYPE html>\r\n<html>\r\n<head>\r\n";
+  // html_tag1 += "<meta name='viewport' content='initial-scale=1.5'>\r\n";
+  // html_tag1 += "</head>\r\n\r\n";
+  // html_tag1 += "<body style='background:#fff; color:#000; font-size:100%;'>\r\n";
+  // html_tag1 += "WiFi SET<br>\r\n";
+  // html_tag1 += "SSID";
+  // String html_tag2 = "\r\n</body>\r\n</html>\r\n\r\n";
 
-  String html_res_head2 = "HTTP/1.1 200 OK\r\n";
-  html_res_head2 += "Content-type:text/plain\r\n";
-  html_res_head2 += "Connection:close\r\n\r\n";
+  // String html_res_head2 = "HTTP/1.1 200 OK\r\n";
+  // html_res_head2 += "Content-type:text/plain\r\n";
+  // html_res_head2 += "Connection:close\r\n\r\n";
   client = server.available();
   String html_res_head404 = "HTTP/1.1 404 NOT Found\r\n";
   html_res_head404 += "Content-type:text/html\r\n";
   html_res_head404 += "Connection:close\r\n\r\n";
 
-  if (client) // decode
+  if (client)
   {
     Serial.println("new client");
-    // wifi_scan(30000);
     String req_str = "";
     String pass_tmp; // password temporary
     while (client.connected())
     {
-      // Serial.println("client.connected");
-      while (client.available())
+      while (client.available()) // decode
       {
         req_str = client.readStringUntil('\n');
         if (req_str.indexOf("\r") == 0)
           break;
-        Serial.println(req_str);
-        Serial.println(PAGE_NUM);
-        if (req_str.indexOf("GET /param_set/?") >= 0)
+        else if (req_str.indexOf("GET /wifi_set/?") >= 0)
+        {
+          pre_url = "GET /wifi_set";
+          Serial.println("GET /wifi_set/?");
+          wifi_set_submit(req_str);
+          req_str = "";
+        }
+        else if (req_str.indexOf("GET /wifi_set") >= 0)
+        {
+          wifi_scan();
+          pre_url = "GET /wifi_set";
+          wifi_set_proc();
+          req_str = "";
+        }
+        else if (req_str.indexOf("GET /disp_trans_param") >= 0) // ajax
+        {
+          client.print(html_res_head2); // plain text
+          String stmp = get_trans_param_func();
+          client.print(stmp.c_str()); // ajax 返り値
+          Serial.print(stmp.c_str());
+          delay(10);
+          client.stop();
+        }
+        else if (req_str.indexOf("GET /param_set/?") >= 0)
         {
           pre_url = "GET /param_set";
-          Serial.println("param_set");
-          PAGE_NUM = 1;
-          int16_t idx_ch_num = req_str.indexOf("channel_number=");
-          int16_t getTXT_u_reset = req_str.indexOf("unit_reset");
-          if (getTXT_u_reset > 0)
-          {
-            esp_restart();
-          }
-          if (idx_ch_num > 0)
-          {
-            int16_t idx_large_small = req_str.indexOf("&large_small=");
-            int16_t idx_conv_param = req_str.indexOf("&conv_param=");
-            S_CH_NUM = req_str.substring(idx_ch_num + 15, idx_large_small);                                 // CH No.(1,2,3,4)
-            S_LARGE_SMALL = req_str.substring(idx_large_small + 13, idx_conv_param);                        // 0:large small:1
-            String s_conv_param = req_str.substring(idx_conv_param + 12, req_str.indexOf("&param_submit")); // 変換パラメータ
-            if (is_float(s_conv_param))                                                                     // float変換できるなら,measへコマンド送信
-            {
-              // format: CH No., sxl , conv para
-              Serial.print("PARAM_SET@");
-              Serial.print(S_CH_NUM);
-              Serial.print(",");
-              Serial.print(S_LARGE_SMALL);
-              Serial.print(",");
-              Serial.println(s_conv_param);
-              Serial2.print("PARAM_SET@");
-              Serial2.print(S_CH_NUM);
-              Serial2.print(",");
-              Serial2.print(S_LARGE_SMALL);
-              Serial2.print(",");
-              Serial2.println(s_conv_param);
-              // Serial1.print("PARAM_SET@");
-              // Serial1.print(S_CH_NUM);
-              // Serial1.print(",");
-              // Serial1.print(S_LARGE_SMALL);
-              // Serial1.print(",");
-              // Serial1.println(s_conv_param);
-            }
-            else
-            {
-              Serial.println("param error");
-            }
-          }
+          param_set_submit(req_str);
+          req_str = "";
         }
         else if (req_str.indexOf("GET /param_set") >= 0)
         {
           pre_url = "GET /param_set";
-          PAGE_NUM = 1;
           client.print(html_res_head);
           client.print(str_calibration);
+          delay(10);
+          client.stop();
+        }
+        else if (req_str.indexOf("GET /get_meas_param") >= 0) // ajax
+        {
+          PAGE_NUM = 1;
+          client.print(html_res_head2);
+          String stmp = get_meas_param();
+          client.print(stmp.c_str());
+          Serial.print(stmp.c_str());
           delay(10);
           client.stop();
         }
@@ -946,30 +1257,13 @@ void wifi_access_point()
         {
           Serial.println("GET /meas_period_set/?");
           pre_url = "GET /meas_period_set";
-          int16_t idx0 = req_str.indexOf("?ave_normal_param=");
-          String stmp;
-          if (idx0 > 0)
-          {
-            stmp = req_str.substring(idx0 + 18, req_str.indexOf("&meas_period_submit"));
-            Serial.println(stmp);
-          }
-          unsigned int meas_period;
-          meas_period = stmp.toInt(); // intに変換できなければ0
-          // if (meas_period >= 60 && meas_period <= 3600) //測定周期が正常値なら
-          if (meas_period >= 2)
-          {
-            eeprom_write();                  // ave normalはcommで保存
-            Serial2.print("OPE_PARAM_SET@"); // measへコマンド転送
-            Serial2.println(meas_period);    // 測定周期転送
-            Serial.print("OPE_PARAM_SET@");  // measへコマンド転送 debug用
-            Serial.println(meas_period);     // 測定周期転送
-          }
+          ave_normal_submit(req_str);
+          req_str = "";
         }
         else if (req_str.indexOf("GET /meas_period_set") >= 0)
         {
           Serial.println("GET /meas_period_set");
           pre_url = "GET /meas_period_set";
-          PAGE_NUM = 1;
           client.print(html_res_head);
           client.print(str_meas_period);
           delay(10);
@@ -1093,153 +1387,11 @@ void wifi_access_point()
           delay(10);
           client.stop();
         }
-        else if (req_str.indexOf("GET /wifi_set/?") >= 0)
-        {
-          // wifi_scan(30000);
-          pre_url = "GET /wifi";
-          PAGE_NUM = 0;
-          Serial.println("--------------- SUBMIT Receive from Clinet");
-          int16_t getTXT_pass = req_str.indexOf("pass1=");
-          int16_t getTXT_select = req_str.indexOf("ssid_select=");
-          int16_t getTXT_host_ip = req_str.indexOf("host_ip=");
-          int16_t getTXT_close = req_str.indexOf("connection_close=");
-          int16_t getTXT_u_reset = req_str.indexOf("unit_reset");
-          if (getTXT_u_reset > 0)
-          {
-            esp_restart();
-          }
-          if (getTXT_select > 0)
-          {
-            Selected_SSID_str = req_str.substring(getTXT_select + 12, req_str.indexOf("&pass1"));
-          }
-          else //クラウドの場合、SSID取得のみ
-          {
-            if (getTXT_pass > 0)
-              pass_tmp = req_str.substring(getTXT_pass + 6, req_str.indexOf("&ssid_sel_submit")); // ssid取得
-          }
-          Sel_SSID_PASS_str = format_pass(&pass_tmp); //アスキーコードを記号に戻す
-          Serial.println(Sel_SSID_PASS_str);
-          //コマンド抽出
-          if (Sel_SSID_PASS_str == "`@r") //`@r なら動作確認用RUT240セット
-          {
-            Serial.println("wifi RUT240");
-            WiFi.begin("RUT240_8B10", "k5N0XpQb");
-            delay(1000); // wifi_connect()でWiFi.begin()を呼ぶため、すぐに呼ばれないようにウェイトをいれる
-            wifi_connect();
-            esp_restart();
-          }
-          else if (Sel_SSID_PASS_str == "`@b") //`@b なら動作確認用wifiセット
-          {
-            Serial.println("wifi Buffalo");
-            WiFi.begin("Buffalo-G-FBF8", "ck8m7ah5v6dkw");
-            delay(1000); // wifi_connect()でWiFi.begin()を呼ぶため、すぐに呼ばれないようにウェイトをいれる
-            wifi_connect();
-            esp_restart();
-          }
-          else
-          {
-            Serial.println("no match");
-          }
-          if (getTXT_close < 0)
-          {
-            Serial.printf("Selected_SSID_str = %s\r\n", Selected_SSID_str.c_str());
-            Serial.printf("Sel_SSID_PASS_str = %s\r\n", Sel_SSID_PASS_str.c_str());
-
-            while (client.available())
-            {
-              char c = client.read();
-              Serial.write(c);
-            }
-
-            Serial.println("-------------- SUBMIT Request Receive Finish");
-            // if (PARA.cxl == 0) //ローカルモードなら
-            // {
-            //   set_para_ip(); //パラメータまたはHOST IPセット
-            //   if (chk_para())
-            //   {                //パラメータなら
-            //     esp_restart(); //リセット
-            //   }
-            //   else if (!chk_host_ip()) //パラメーターでもhost ipでもなければ
-            //   {
-            //     html_send(false, "disconnected", "INVALID HOST IP", "#F00", html_res_head, html_tag1, html_tag2);
-            //     break;
-            //   }
-            // }
-            delay(500); // Important! This delay is necessary to connect to the Access Point.
-
-            // Selected_SSID_str = "Buffalo-G-1A00";
-            // Sel_SSID_PASS_str = "diikr7csk5cxf";
-            WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
-            uint32_t timeout = millis();
-            while (1)
-            {
-              boolean exit_flag = false;
-              if (WiFi.status() != WL_CONNECTED)
-              {
-                Serial.println("no connect");
-                delay(1000);
-                if (millis() - timeout > 15000)
-                {
-                  html_send(false, Selected_SSID_str, "TIME OUT", "#F00", html_res_head, html_tag1, html_tag2);
-                  exit_flag = true;
-                }
-              }
-              else
-              {
-                Serial.println("connect");
-                LIP = WiFi.localIP();
-                Serial.println("\r\nWiFi connected");
-                Serial.print("Local IP address: ");
-                Serial.println(LIP);
-                Serial.printf("\r\n-----------%s Connected!\r\n", Selected_SSID_str.c_str());
-                html_send(true, Selected_SSID_str, "Set OK! Push RESET<br>", "#00F", html_res_head, html_tag1, html_tag2);
-                exit_flag = true;
-              }
-              if (exit_flag)
-              {
-                break;
-              }
-            }
-          }
-          else
-          {
-            html_send(false, "---", "Closed!", "#F00", html_res_head, html_tag1, html_tag2);
-            WiFi.disconnect(false); // false=WiFi_ON , true=WiFi_OFF
-          }
-
-          delay(10);
-          client.stop();
-          Serial.println("client disonnected");
-          delay(10);
-          req_str = "";
-        }
-        else if (req_str.indexOf("GET /wifi_set") >= 0)
-        {
-          wifi_scan();
-          pre_url = "GET /wifi";
-          PAGE_NUM = 0;
-          Serial.println("--------------- GET Request Receive from Clinet");
-          while (client.available())
-          {
-            char c = client.read();
-            Serial.write(c);
-          }
-          Serial.println("--------------- GET Request Receive Finish");
-          html_send(false, "Connection close", "Connection close", "#FFF", html_res_head, html_tag1, html_tag2);
-
-          delay(10);
-          client.stop();
-          Serial.println("client disonnected");
-          delay(10);
-          req_str = "";
-        }
         else if (req_str.indexOf("GET /f1c9t?") >= 0) // factory
         {
-          PAGE_NUM = 1;
           pre_url = "GET /f1c9t";
           Serial.println(req_str);
           String stmp = req_str.substring(req_str.indexOf("GET /?model_no=") + 21, req_str.indexOf("&factory_param_submit"));
-          Serial.println("====================");
           Serial.println(stmp);
           PARA.model_no = stmp.toInt();
           Serial.print("model no:");
@@ -1325,77 +1477,6 @@ void wifi_access_point()
   }
 }
 
-void html_send(boolean sta_connected, String message1, String message2, String color, String html_res_head, String html_tag1, String html_tag2)
-{
-  client.print(html_res_head);
-  client.print(html_tag1);
-  // client.print(HTML_Select_Box_str("!xxxx", message1));
-  client.print(HTML_Select_Box_str(message1));
-  client.printf("<p style='color:%s; font-size:80%%'>%s</p>\r\n", color.c_str(), message2.c_str()); //%%と重ねなければならない
-  if (sta_connected == true)
-  {
-    client.print("<span style='font-size:80%'>IP = ");
-    client.print(LIP);
-    client.print("<br>");
-    client.print("</span>\r\n");
-  }
-  client.print(html_tag2);
-  Serial.print(html_res_head);
-  Serial.print(html_tag1);
-  // Serial.print(HTML_Select_Box_str("!xxxx", message1));
-  Serial.print(HTML_Select_Box_str(message1));
-  Serial.printf("<p style='color:%s; font-size:80%%'>%s</p>\r\n", color.c_str(), message2.c_str());
-  if (sta_connected == true)
-  {
-    Serial.print("<span style='font-size:80%'>IP = ");
-    Serial.print(LIP);
-    Serial.print("</span>\r\n");
-  }
-  Serial.print(html_tag2);
-}
-//*******************************************
-String HTML_Select_Box_str(String Sel_Ssid)
-{
-  // String HTML_Select_Box_str(String button_id, String Sel_Ssid){
-  String str = "";
-  String selected_str = "";
-  str += "<form name='F_ssid_select'>\r\n";
-  str += "  <select name='ssid_select'>\r\n";
-  for (int i = 0; i < ssid_num; i++)
-  {
-    if (Selected_SSID_str == ssid_str[i])
-    {
-      selected_str = " selected";
-    }
-    else
-    {
-      selected_str = "";
-    }
-    str += "    <option value=" + ssid_str[i] + selected_str + ">" + ssid_rssi_str[i] + "</option>\r\n";
-  }
-  str += "</select><br>\r\n";
-  // str += "Password<br><input type='password' name='pass1'>\r\n";
-  // str += "Password<br><input type='text' name='pass1' value='diikr7csk5cxf'>\r\n"; //debug用初期値
-  str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; // debug用初期値
-  // str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=document.F_ssid_select.ssid_select.value;'>Start connection</button>\r\n";
-  str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;'>SET</button>\r\n";
-  str += "<br>";
-  // str += "<br><button type='submit' name='unit_reset' value='send' style='background-color:#FAF;'>RESET</button>\r\n";
-  str += "</form><br>\r\n";
-  str += "<br>";
-  str += "<a href=\"/\" style=\"color:navy\">Home</a>";
-  // str += "<form name='F_connection_close'>\r\n";
-  // str += "  <button type='submit' name='connection_close' value='send' style='background-color:#FAA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=\"Connection close\";'>Connection Close</button>\r\n";
-  // str += "</form>\r\n";
-  // str += "<br>  Selected SSID<br><span id='ssid_sel_txt'  style='font-size:80%;'>";
-  // str += "<br><span id='ssid_sel_txt'  style='font-size:80%;'>";
-
-  // str += Sel_Ssid;
-  // str += "Selected SSID" + Sel_Ssid;
-  str += "</span>\r\n";
-  return str;
-}
-// void wifi_scan(uint32_t scan_interval)
 void wifi_scan(void)
 {
   // static boolean FIRST_SCAN_FLAG = true;
@@ -1498,11 +1579,48 @@ void favicon_response()
 //   }
 // }
 
-//パラメータをシリアル表示
-void disp_param(void)
+void disp_ave_normal(void)
 {
-  //動作モードを表示
+  for (int i = 0; i < 4; i++)
+  {
+    Serial.print("CH");
+    Serial.print(i + 1);
+    Serial.print(":");
+
+    if (PARA.s_n_xave_flg[i] == "0")
+    {
+      Serial.println("average");
+    }
+    else
+    {
+      Serial.println("nomal");
+    }
+  }
+}
+//パラメータをシリアル表示
+void disp_info(void)
+{
+  Serial.println("");
   Serial.println("================================");
+  Serial.print("DATE:");
+  Serial.println("2022-04-14");
+  uint8_t mac0[6];
+  esp_efuse_mac_get_default(mac0); // macアドレス読み取り
+  String stmp;
+  for (int i = 0; i < 6; i++)
+  {
+    stmp = String(mac0[i], HEX);
+    if (stmp.length() < 2)
+      stmp = "0" + stmp;
+    CLIENT_ID += stmp;
+    if (i < 5)
+    {
+      CLIENT_ID += "-";
+    }
+  }
+  Serial.print("MAC ADDRESS:");
+  Serial.println(CLIENT_ID);
+  //動作モードを表示
   Serial.print("Model:");
   if (PARA.model_no == 0)
   {
@@ -1514,25 +1632,16 @@ void disp_param(void)
   }
   else if (PARA.model_no == 1)
   {
-    Serial.println("Normal 4ch");
-    for (int i = 0; i < 4; i++)
-    {
-      Serial.print("CH");
-      Serial.print(i + 1);
-      Serial.print(":");
-
-      if (PARA.s_n_xave_flg[i] == "0")
-      {
-        Serial.println("average");
-      }
-      else
-      {
-        Serial.println("nomal");
-      }
-    }
+    Serial.println("Normal 4ch cloud");
+    disp_ave_normal();
   }
-  Serial.print("Host IP:");
-  Serial.println(PARA.host_ip);
+  else if (PARA.model_no == 2)
+  {
+    Serial.println("Normal 4ch local");
+    disp_ave_normal();
+    Serial.print("Host IP:");
+    Serial.println(PARA.host_ip);
+  }
   Serial.println("================================");
 }
 
@@ -1557,17 +1666,21 @@ void connect_local_host(void) //つながらなかった時リセットがかか
   }
 }
 
-void send_local_host(char *SC_BUF)
+void send_local_server(char *cdata)
 {
   String path;
   String body;
   String dt;
   String payload;
   connect_local_host();
-  Serial.print("Send data: ");
-  Serial.println(SC_BUF);
+  // Serial.println(SC_BUF);
+  String stmp = String(cdata);
+  stmp.replace("{", "");
   path = "/ds_420ma";
-  body = "{\"DEVICE_ID\": \"" + CLIENT_ID + "\",\"ch1\": \"" + String(SC_BUF) + "\"}";
+  body = "{\"DEVICE_ID\":\"" + CLIENT_ID + "\"," + stmp;
+
+  // Serial.print("send to local server: ");
+  // Serial.println(body);
   payload = "POST " + path + " HTTP/1.1\r\n" +
             "Content-Type: application/json\r\n" +
             "Content-Length: " + body.length() + "\r\n" +
@@ -1633,12 +1746,7 @@ void aws_connect(void)
 
 void setup()
 {
-#ifdef VST100
-  pinMode(SDA_PIN, OUTPUT);
-  pinMode(SCL_PIN, OUTPUT);
-#else
-  Wire.begin(); //使用しないが接続されているの
-#endif
+  // Wire.begin(); //使用しないが接続されているの
   Serial.begin(115200);
   Serial2.begin(115200);
   // Serial1.begin(115200, SERIAL_8N1, RX1_PIN, TX1_PIN); // commとの通信
@@ -1651,30 +1759,14 @@ void setup()
   //     delay(100);
   // }
   // WireSlave.onReceive(receiveEvent);
-  // pinMode(SDA_PIN, INPUT_PULLUP);
-  // pinMode(SCL_PIN, INPUT_PULLUP);
+  pinMode(SDA_PIN, INPUT_PULLUP);
+  pinMode(SCL_PIN, INPUT_PULLUP);
   // pinMode(SDA_PIN_NG, INPUT_PULLUP);
   // pinMode(SCL_PIN_NG, INPUT_PULLUP);
   // Wire.begin(); //I2Cマスターとして動作
-  uint8_t mac0[6];
-  esp_efuse_mac_get_default(mac0); // macアドレス読み取り
-  String stmp;
-  for (int i = 0; i < 6; i++)
-  {
-    stmp = String(mac0[i], HEX);
-    if (stmp.length() < 2)
-      stmp = "0" + stmp;
-    CLIENT_ID += stmp;
-    if (i < 5)
-    {
-      CLIENT_ID += "-";
-    }
-  }
-  Serial.println("");
-  Serial.println("2022-04-12");
-  Serial.println(CLIENT_ID);
   eeprom_read();
-  disp_param();
+  disp_info();
+
   // if (!SPIFFS.begin())
   // {
   //   Serial.println("SPIFFS failed, or not present");
@@ -1682,17 +1774,14 @@ void setup()
   // }
   // if (!read_para_file()) // msc.txtよりパラメータを読み取りできなければ
   // {
-  // eepromよりパラメータ読み取り,何も書き込まれてなければ初期値が入る
-
-  //  setup_wifi();
   pinMode(XAP_BTN, INPUT);     // ap button
   pinMode(STATUS_LED, OUTPUT); // status led
   pinMode(CXS, OUTPUT);        // 1:通常 0:セッティングモード
   pinMode(BZ_ON, OUTPUT);      // 1:ON 0:OFF
   digitalWrite(CXS, HIGH);
   digitalWrite(BZ_ON, LOW);
-  // digitalWrite(BZ_ON, HIGH);
   digitalWrite(STATUS_LED, LOW); // status led off
+
   if (digitalRead(XAP_BTN) == 0) // APボタンが押されていたらアクセスポイントモードで起動
   {
     digitalWrite(STATUS_LED, HIGH);
@@ -1708,13 +1797,11 @@ void setup()
     Serial.println("Setup done");
 
     // server.on("/temperature", HTTP_GET, [](AsyncWebServerRequest *request)
-    //           { request->send_P(200, "text/plain", disp_trans_param().c_str()); });
+    //           { request->send_P(200, "text/plain", get_meas_param().c_str()); });
     // server.on("/humidity", HTTP_GET, [](AsyncWebServerRequest *request)
     //           { request->send_P(200, "text/plain", getHumidity().c_str()); });
     server.begin();
     Serial.println(F("Server started"));
-
-    // scanLastTime = millis();
   }
   else //通常モードで起動
   {
@@ -1724,20 +1811,21 @@ void setup()
     timer = timerBegin(0, 80, true);                 // timer 0, div 80
     timerAttachInterrupt(timer, &resetModule, true); // attach callback
     wifi_connect();                                  // wifi接続
-    // if (PARA.cxl == 1)                               //クラウドならaws接続
-    // {
-    //   setup_awsiot();
-    //   aws_connect();
-    // }
+    if (PARA.model_no != 2)                          //クラウドならaws接続
+    {
+      setup_awsiot();
+      aws_connect();
+    }
     // readADC();  //最初のデータ取得のためad変換をスタートする
-    delay(100); //変換のため時間確保
+    // delay(100); //変換のため時間確保
+    Serial2.println("dummy"); //一発目はなぜかちゃんと送信できないようなので、正常なコマンドを送信する前にダミー送信
   }
 }
 
 void loop()
 {
   CHATTERING_AP[CHATTERING_CNT++] = digitalRead(XAP_BTN);
-  if (CHATTERING_CNT > 3)
+  if (CHATTERING_CNT >= 3)
   {
     CHATTERING_CNT = 0;
   }
@@ -1745,6 +1833,7 @@ void loop()
   {
     esp_restart(); // reset
   }
+  // Serial.println(digitalRead(XAP_BTN));
   if (Serial2.available()) // 受信データがあるか？
   {
     char key = Serial2.read(); // 1文字読み込み
@@ -1759,6 +1848,7 @@ void loop()
         {
           CMD_RECEIVE_FLAG = true;
           Serial.println(SERIAL_BUF);
+          PRE_SERIAL_BUF = SERIAL_BUF;
         }
       }
     }
@@ -1769,9 +1859,9 @@ void loop()
   }
   if (AP_MODE) //アクセスポイントモードなら
   {
+    wifi_access_point();
     digitalWrite(CXS, LOW);         //セッティングモード
     digitalWrite(STATUS_LED, HIGH); // status led on
-    wifi_access_point();
     // Serial.println(PAGE_NUM);
     // if (PAGE_NUM == 0)
     // {
@@ -1827,7 +1917,7 @@ void loop()
         dst[24].toCharArray(st_ch4, 10);
         sprintf(pub_msg, "{\"id\":\"rx01\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\"}", st_ch1, st_ch2, st_ch3, st_ch4);
       }
-      else if (PARA.model_no == 1) //ノーマル4ch
+      else if (PARA.model_no == 1 || PARA.model_no == 2) //ノーマル4ch
       {
         // ch1
         if (PARA.s_n_xave_flg[0] == "1")
@@ -1870,17 +1960,14 @@ void loop()
       wifi_connect();         // wifiの接続がなければ接続しに行く
       if (PARA.model_no != 2) //クラウドなら(Model No.2 4ch normal local以外はクラウドへ転送)
       {
-        aws_mqtt_publish(pub_msg); // awsへ送信 送信できなければリセットがかかる
+        aws_mqtt_publish(pub_msg);   // awsへ送信 送信できなければリセットがかかる
+        Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す
       }
-      // Serial.println(pub_msg);     // debug
-      // Serial.println("ACK_COMM");  // debug
-      Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
-      // }
-      // else //ローカルなら
-      // {
-      //   // send_local_host(SC_BUF);     //ホストへ転送
-      //   Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
-      // }
+      else //ローカルなら
+      {
+        send_local_server(pub_msg);  //ホストへ転送
+        Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す 送信できなかった場合、リセットがかかっているのでここは実行されない
+      }
     }
   }
 }
