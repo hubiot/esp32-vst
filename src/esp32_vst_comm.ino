@@ -6,7 +6,7 @@
 // aws証明書は、ソースの中にいれた
 // esp32のflashを暗号化機能を使えば、独自に暗号化するより安全と判断
 //証明書を変更するには再コンパイルが必要
-
+// #define VST100 1
 #include "esp_system.h"
 #include <WiFi.h>
 // #include "FS.h"
@@ -26,7 +26,6 @@ char SC_BUF[200]; // serial char buff
 int SCB_CNT = 0;  // serial char cnt
 String SERIAL_BUF, PRE_SERIAL_BUF;
 int PAGE_NUM = 0; // 0:wifi set 1:parameter set
-void receiveEvent(int howMany);
 
 String S_CH_NUM = "1";      // ch1 = 1
 String S_LARGE_SMALL = "0"; // 0:large 1:small
@@ -1603,7 +1602,7 @@ void disp_info(void)
   Serial.println("");
   Serial.println("================================");
   Serial.print("DATE:");
-  Serial.println("2022-04-14");
+  Serial.println("2022-04-22");
   uint8_t mac0[6];
   esp_efuse_mac_get_default(mac0); // macアドレス読み取り
   String stmp;
@@ -1746,24 +1745,14 @@ void aws_connect(void)
 
 void setup()
 {
-  // Wire.begin(); //使用しないが接続されているの
-  Serial.begin(115200);
-  Serial2.begin(115200);
-  // Serial1.begin(115200, SERIAL_8N1, RX1_PIN, TX1_PIN); // commとの通信
-  //  Serial2.begin(115200);
-  // bool success = WireSlave.begin(SDA_PIN, SCL_PIN, I2C_SLAVE_ADDR); //うまく行けば使う
-  // if (!success)
-  // {
-  //   Serial.println("I2C slave init failed");
-  //   while (1)
-  //     delay(100);
-  // }
-  // WireSlave.onReceive(receiveEvent);
+#ifdef VST100
   pinMode(SDA_PIN, INPUT_PULLUP);
   pinMode(SCL_PIN, INPUT_PULLUP);
-  // pinMode(SDA_PIN_NG, INPUT_PULLUP);
-  // pinMode(SCL_PIN_NG, INPUT_PULLUP);
-  // Wire.begin(); //I2Cマスターとして動作
+#else
+  Wire.begin(); //使用しないが接続されているの
+#endif
+  Serial.begin(115200);
+  Serial2.begin(115200);
   eeprom_read();
   disp_info();
 
@@ -1971,15 +1960,3 @@ void loop()
     }
   }
 }
-
-// void receiveEvent(int howMany)
-// {
-//   while (1 < WireSlave.available()) // loop through all but the last byte
-//   {
-//     char c = WireSlave.read(); // receive byte as a character
-//     Serial.print(c);           // print the character
-//   }
-
-//   int x = WireSlave.read(); // receive byte as an integer
-//   Serial.println(x);        // print the integer
-// }
