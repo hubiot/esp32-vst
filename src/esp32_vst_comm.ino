@@ -948,9 +948,9 @@ String HTML_Select_Box_str(String Sel_Ssid)
     str += "    <option value=" + ssid_str[i] + selected_str + ">" + ssid_rssi_str[i] + "</option>\r\n";
   }
   str += "</select><br>\r\n";
-  // str += "Password<br><input type='password' name='pass1'>\r\n";
+  str += "Password<br><input type='password' name='pass1'>\r\n";
   // str += "Password<br><input type='text' name='pass1' value='diikr7csk5cxf'>\r\n"; //debug用初期値
-  str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; // debug用初期値
+  // str += "Password<br><input type='text' name='pass1' value='ck8m7ah5v6dkw'>\r\n"; // debug用初期値
   // str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;' onclick='document.getElementById(\"ssid_sel_txt\").innerHTML=document.F_ssid_select.ssid_select.value;'>Start connection</button>\r\n";
   str += "<br><button type='submit' name='ssid_sel_submit' value='send' style='background-color:#AFA;'>SET</button>\r\n";
   str += "<br>";
@@ -1143,8 +1143,8 @@ void ave_normal_submit(String req_str)
   }
   unsigned int meas_period;
   meas_period = stmp.toInt(); // intに変換できなければ0
-  // if (meas_period >= 60 && meas_period <= 3600) //測定周期が正常値なら
-  if (meas_period >= 2)
+  if (meas_period >= 2 && meas_period <= 3600) //営業サンプルはmeasは60以下も受け付ける、製品版は60未満なら受け付けない
+  // if (meas_period >= 2)
   {
     eeprom_write();                  // ave normalはcommで保存
     Serial2.print("OPE_PARAM_SET@"); // measへコマンド転送
