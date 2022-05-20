@@ -37,7 +37,7 @@ struct eeprom_struct // EEPROMで利用する型を宣言
 
 struct para_d //動作を規定するパラメータ
 {
-  int model_no;           // Model No. 0:rex noise/shake 1:4ch normal
+  int model_no;           // Model No. 0:rex noise/vibration 1:4ch normal
   String s_n_xave_flg[4]; //演算 0:ave 1:normal ch1,2,3,4のそれぞれにセット
   // unsigned int meas_period; //測定周期(=通信周期)
   String host_ip; // host ip
@@ -179,7 +179,7 @@ const char *str_factory = R"rawliteral(
     <form>
       <label for = model_no>Select Model</label>
       <select name="model_no">
-        <option value="0">REX (NOISE/SHAKE)</option>
+        <option value="0">NOISE/VIBRATION</option>
         <option value="1">Normal 4ch cloud</option>
         <option value="2">Normal 4ch local</option>
       </select>
@@ -241,7 +241,7 @@ const char *str_rex_noise_shake = R"rawliteral(
     </style>
   </head>
   <body>
-    <h1>ch1:noise ch2:shake</h1>
+    <h1>ch1:noise ch2:vibration</h1>
     <h1>ch3:average ch4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a>
     <br>
@@ -577,7 +577,7 @@ void eeprom_write(void)
   eeprom_struct ebuf; //メモリ上に実体を作成
   String sbuf = "";
   // model no: 0
-  sbuf = String(PARA.model_no); // model No. 0:rex noise/shake,1:normal 4ch
+  sbuf = String(PARA.model_no); // model No. 0:rex noise/vibration,1:normal 4ch
   sbuf += ",";
   // ave normal flag : 1
   for (int i = 0; i < 4; i++)
@@ -617,7 +617,7 @@ boolean eeprom_read(void)
   else
   {
     PARA.model_no = dst[0].toInt();              // model no. :0
-    if (PARA.model_no < 0 || PARA.model_no >= 3) //想定外だとrex noise/shake版にする
+    if (PARA.model_no < 0 || PARA.model_no >= 3) //想定外だとrex noise/vibration版にする
     {
       PARA.model_no = 0;
     }
@@ -1142,7 +1142,7 @@ void ave_normal_submit(String req_str)
     Serial.println(stmp);
   }
   unsigned int meas_period;
-  meas_period = stmp.toInt(); // intに変換できなければ0
+  meas_period = stmp.toInt();                  // intに変換できなければ0
   if (meas_period >= 2 && meas_period <= 3600) //営業サンプルはmeasは60以下も受け付ける、製品版は60未満なら受け付けない
   // if (meas_period >= 2)
   {
@@ -1601,8 +1601,12 @@ void disp_info(void)
 {
   Serial.println("");
   Serial.println("================================");
-  Serial.print("DATE:");
-  Serial.println("2022-04-22");
+#ifdef VST100
+  Serial.println("VST-100");
+#else
+  Serial.println("VST-01");
+#endif
+
   uint8_t mac0[6];
   esp_efuse_mac_get_default(mac0); // macアドレス読み取り
   String stmp;
@@ -1623,9 +1627,9 @@ void disp_info(void)
   Serial.print("Model:");
   if (PARA.model_no == 0)
   {
-    Serial.println("REX (NOISE/SHAKE)");
+    Serial.println("NOISE/VIBRATION");
     Serial.println("CH1:noise");
-    Serial.println("CH2:shake");
+    Serial.println("CH2:vibration");
     Serial.println("CH3:average");
     Serial.println("CH4:average");
   }
