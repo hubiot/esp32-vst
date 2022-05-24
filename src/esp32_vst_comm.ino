@@ -1704,6 +1704,10 @@ void aws_mqtt_publish(char *str)
   Serial.println(str);
   mqttClient.publish(pubTopic, str);
   Serial.println("Published.");
+  Serial.println("");
+  Serial.println("");
+  Serial.println("");
+  Serial.println("");
 }
 // WiFiに接続しにいって、8秒間接続できなければ本体リセット
 void wifi_connect(void)
@@ -1955,6 +1959,7 @@ void loop()
       {
         aws_mqtt_publish(pub_msg);   // awsへ送信 送信できなければリセットがかかる
         Serial2.println("ACK_COMM"); //クラウドへ転送後、measへackを返す
+        Serial.println("ACK_COMM"); //クラウドへ転送後、measへackを返す
       }
       else //ローカルなら
       {
