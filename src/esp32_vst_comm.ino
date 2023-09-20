@@ -19,7 +19,6 @@
 #include "time.h"
 #include "esp_sntp.h"
 unsigned long MEAS_TIME = 0; // 測定した時間(ms)
-unsigned long PRE_SEC = 0;
 
 // #define I2C_SLAVE_ADDR 0x08
 char SC_BUF[200]; // serial char buff
@@ -27,9 +26,12 @@ int SCB_CNT = 0;  // serial char cnt
 String SERIAL_BUF, PRE_SERIAL_BUF;
 int PAGE_NUM = 0; // 0:wifi set 1:parameter set
 
-int CUR_MIN;    // 現時刻の分
-int PRE_MIN;    // 前回の分
-int CUR_SEC;    // 現時刻の秒  デバッグ用 分単位だと検証に時間がかかりすぎるため
+int CUR_MIN; // 現時刻の分
+int PRE_MIN; // 前回の分
+// int CUR_RAIN_MIN; // 雨量リセットするための正時検出用
+// int PRE_RAIN_MIN = 0; // 雨量リセットするための正時検出用
+int CUR_SEC; // 現時刻の秒  デバッグ用 分単位だと検証に時間がかかりすぎるため
+int PRE_SEC = 0;
 float RAIN_OTH; // 正時1時間雨量 rain on the hour
 #define RELAY_OUT 33
 #define JST 3600 * 9
@@ -2122,6 +2124,11 @@ void loop()
   else if (CMD_RECEIVE_FLAG) // コマンドを受け取っていたら通信スタート
   {
     CMD_RECEIVE_FLAG = false;
+    // PRE_RAIN_MIN = CUR_RAIN_MIN;
+    // struct tm *tm;             // 外のスコープのCUR_MIN,PRE_MINを使って正時間を検出しようとすると、ほぼ確実にCUR_MIN=PRE_MINとなってしまい正時を検出できない
+    //  このスコープ用の現時刻、前時刻が必要
+    // tm = localtime(&CUR_TIME); // 構造体に時刻をセット
+    // CUR_RAIN_MIN = tm->min;    // 正時検出用現時刻セット
     // digitalWrite(CXS, HIGH);
     String dst[27]; // split()を呼ぶ前に初期化しなければならない
     int itmp = split(SC_BUF, ',', dst, 27);
@@ -2158,14 +2165,15 @@ void loop()
       SCB_CNT = 0;
       // sbuf = "";
 
-      char st_ch1[200], st_ch2[200], st_ch3[10], st_ch4[10], st_rain[10]; // mqtt送信用バッファ
+      char st_ch1[200], st_ch2[200], st_ch3[10], st_ch4[10], st_rain[10]; // mqttで飛ばす関数にはchar型で渡す必要があるため
       char pub_msg[500];
       // Serial.print("Model No.");  //debug
       // Serial.println(PARA.model_no);
       float ftmp;
       String stmp1;
-      String stime;
-      char st_mon[3], st_day[3], st_hour[3], st_min[3];
+      // String stime;
+      // String stime;
+      char st_year[5], st_mon[5], st_day[5], st_hour[5], st_min[5], st_time[15]; // mqttで飛ばす関数にはchar型で渡す必要があるため
       switch (PARA.model_no)
       {
       case 0: // rex 騒音振動
@@ -2178,10 +2186,10 @@ void loop()
       case 3:                           // rex 雨量 measより測定データを受信したときの処理, measへデータを要求する処理は他で行っている,ここはcommより送信データを受け取ったときの処理
         ftmp = dst[25].toFloat() * 0.5; // measから送付されるデータはすべてfloat, 1pulse = 0.5mmなので0.5を掛けている
                                         // 正時1時間雨量はcommで計算している 時間情報を持っているのでcommでのほうがやりやすい
-
-        if ((CUR_MIN % 60) == 0 && (PRE_MIN % 60) != 0) // 毎正時
-        // if ((CUR_MIN % min_period) == 0 && CUR_SEC == 0) //
-        // if (CUR_SEC == 20) // デバッグ用 (00分00秒,,,59分:00秒)に積算雨量はcommより受け取ったデータにする
+        time(&CUR_TIME);                // システムクロックの時刻をCUR_TIMEにセット
+        struct tm *tm;
+        tm = localtime(&CUR_TIME); // 構造体に時刻をセット
+        if (tm->tm_min == 10)      // クラウドへのデータ送信時間が10分なら雨量を初期化、 0分は、50～60分のデータを送信するので0分で初期化してはいけない
         {
           RAIN_OTH = ftmp; // 初期化
           RCNT = 0;
@@ -2199,26 +2207,26 @@ void loop()
         if (RAIN_OTH > PARA.shreshold)
         {
           digitalWrite(RELAY_OUT, HIGH);
+          Serial.println("RELAY ON");
         }
         else
         {
           // digitalWrite(RELAY_OUT, HIGH);
           digitalWrite(RELAY_OUT, LOW);
+          Serial.println("RELAY OFF");
         }
         stmp1 = String(ftmp, 1);
         stmp1.toCharArray(st_rain, 10);
-        dst[12].toCharArray(st_ch2, 200); // ave
-        dst[22].toCharArray(st_ch3, 10);  // ave
-        dst[24].toCharArray(st_ch4, 10);  // ave
-        time(&CUR_TIME);                  // システムクロックの時刻をCUR_TIMEにセット
-        struct tm *tm;
-        tm = localtime(&CUR_TIME);               // 構造体に時刻をセット
-        sprintf(st_mon, "%02d", tm->tm_mon + 1); // 2桁に揃える
-        sprintf(st_day, "%02d", tm->tm_mday);    // 2桁に揃える
-        sprintf(st_hour, "%02d", tm->tm_hour);   // 2桁に揃える
-        sprintf(st_min, "%02d", tm->tm_min);     // 2桁に揃える
-        stime = String(tm->tm_year + 1900) + String(st_mon) + String(st_day) + String(st_hour) + String(st_min);
-        sprintf(pub_msg, "{\"id\":\"rx02\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\",\"time\":\"%s\"}", st_rain, st_ch2, st_ch3, st_ch4, stime);
+        dst[12].toCharArray(st_ch2, 200);           // ave
+        dst[22].toCharArray(st_ch3, 10);            // ave
+        dst[24].toCharArray(st_ch4, 10);            // ave
+        sprintf(st_mon, "%02d", tm->tm_mon + 1);    // 2桁のcharを生成
+        sprintf(st_day, "%02d", tm->tm_mday);       // 2桁のcharを生成
+        sprintf(st_hour, "%02d", tm->tm_hour);      // 2桁のcharを生成
+        sprintf(st_min, "%02d", tm->tm_min);        // 2桁のcharを生成
+        sprintf(st_year, "%d", tm->tm_year + 1900); //
+        sprintf(st_time, "%s%s%s%s%s", st_year, st_mon, st_day, st_hour, st_min);
+        sprintf(pub_msg, "{\"id\":\"rx02\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\",\"time\":\"%s\"}", st_rain, st_ch2, st_ch3, st_ch4, st_time);
         break;
       case 1: // ノーマル4ch cloud
       case 2: // ノーマル4ch local
