@@ -6,7 +6,13 @@
 // aws証明書は、ソースの中にいれた
 // esp32のflashを暗号化機能を使えば、独自に暗号化するより安全と判断
 // 証明書を変更するには再コンパイルが必要
-#define VST100 1
+#define VST100        // VST-100なら定義、VST-01ならコメントアウト
+#define CLOUD_DEBUG 0 // クラウドデバッグ用 通常動作時は0をセット ※クラウドデバッグは手間なくできるようにすべてCH4のデータを使用
+// 0:通常動作
+// 1:RFT-01クラウドデバッグ用  ch1のデータをCH4で代用
+// 2:VST-01 騒音振動番チェック すべてのデータをCH4で代用
+// 3:ノーマル4chチェック       すべてのデータをCH4で代用
+// 4:VST-100 雨量計版チェック  すべてのデータをCH4で代用
 #include "esp_system.h"
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -56,8 +62,8 @@ struct para_d // 動作を規定するパラメータ
   unsigned int meas_period; // 雨量計の時は、この値を測定周期として使う。measにも同じ値があるが、それを使うとmeasだけにリセットがかかった時、動作しなくなる
 };
 para_d PARA;
-// const char *pubTopic = "pub01"; // クラウドデバッグ環境用
-const char *pubTopic = "pub_prod";                                                    // クラウド製品版
+const char *pubTopic = "pub01"; // クラウドデバッグ環境用
+// const char *pubTopic = "pub_prod";                                                    // クラウド製品版
 const char ntp_server[][30] = {"ntp.nict.jp", "pool.ntp.org", "ntp.jst.mfeed.ad.jp"}; // 3つのうちどれが生きていればOK
 // const char ntp_server[][30] = {"pool.ntp.org", "ntp.jst.mfeed.ad.jp", "ntp.nict.jp"}; //debug用
 // const char ntp_server[][30] = {"ntp.jst.mfeed.ad.jp", "ntp.nict.jp", "pool.ntp.org"}; // debug用
@@ -2226,7 +2232,19 @@ void loop()
         sprintf(st_min, "%02d", tm->tm_min);        // 2桁のcharを生成
         sprintf(st_year, "%d", tm->tm_year + 1900); //
         sprintf(st_time, "%s%s%s%s%s", st_year, st_mon, st_day, st_hour, st_min);
+#if CLOUD_DEBUG == 1 // RFT-01クラウドデバッグ用 ch4のデータをCH4で代用
+        sprintf(pub_msg, "{\"ch1\": \"%s\"}", st_ch4);
+#elif CLOUD_DEBUG == 2 // VST-01 騒音振動番チェック
+        sprintf(st_ch1, "%s@%s@%s@%s@%s@%s@%s@%s", st_ch4, st_ch4, st_ch4, st_ch4, st_ch4, st_ch4, st_ch4, st_ch4); // L5,L10などすべてのデータをCH4の測定値で代用
+        // strcpy(str, "{\"id\":\"rx01\",\"ch1\":\"5@10@5.0@9.0@9.5@1@21@15.5\",\"ch2\":\"5.5@1.1@8.5@L9.9@19.5@3@23@18.0\",\"ch3\":\"3.3\",\"ch4\": \"4.4\"}");
+        sprintf(pub_msg, "{\"id\":\"rx01\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\"}", st_ch1, st_ch1, st_ch4, st_ch4);
+#elif CLOUD_DEBUG == 3 // ノーマル4chチェック すべてのデータをCH4で代用
+        sprintf(pub_msg, "{\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\"}", st_ch4, st_ch4, st_ch4, st_ch4);
+#elif CLOUD_DEBUG == 4 // VST-100 雨量計版チェック すべてのデータをCH4で代用
+        sprintf(pub_msg, "{\"id\":\"rx02\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\",\"time\":\"%s\"}", st_ch4, st_ch4, st_ch4, st_ch4, st_time); // VST-100クラウドデバッグ用 ch4のデータをch1-4のデータとしてクラウドへ送信
+#else                  // 通常動作
         sprintf(pub_msg, "{\"id\":\"rx02\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\",\"time\":\"%s\"}", st_rain, st_ch2, st_ch3, st_ch4, st_time);
+#endif
         break;
       case 1: // ノーマル4ch cloud
       case 2: // ノーマル4ch local
@@ -2305,8 +2323,8 @@ void loop()
     // Serial.println(PRE_MIN);
     // Serial.println(PRE_SEC % 10);
     // if ((tm->tm_min % interval_min) == 0 && tm->tm_sec == 0 && PRE_SEC != 0) // interva_min=10なら 00,10,,,50分 を一度だけ検出
-    if ((CUR_MIN % 10) == 0 && (PRE_MIN % 10) != 0) // 10分毎
-    // if ((tm->tm_sec % 10) == 0 && (PRE_SEC % 10) != 0) // 10秒毎
+    if ((CUR_MIN % 10) == 0 && (PRE_MIN % 10) != 0) // 10分毎 product
+    // if ((tm->tm_sec % 10) == 0 && (PRE_SEC % 10) != 0) // 10秒毎 debug
     // if (tm->tm_sec == 0 && PRE_SEC != 0) // 1分毎
     // if ((CUR_MIN % 5) == 0 && (PRE_MIN % 5) != 0) // 5分毎
     {
