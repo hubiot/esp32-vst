@@ -20,6 +20,7 @@
 #include <HTTPClient.h>
 #include <EEPROM.h>
 #include <math.h>
+#include <algorithm>
 #include "aws.h"      // AWS証明書
 #include "time.h"
 #include "esp_sntp.h"
@@ -624,7 +625,6 @@ void IRAM_ATTR resetModule();
 
 // 測定関数プロトタイプ
 float md_trans(float val, trans_para *para);
-void sort_meas_data(int buf_len, unsigned int val, unsigned int *SORT_DATA);
 void read_mcp3424(void);
 void meas_rain_sample(unsigned long now);
 void meas_adc_sample(unsigned long now);
@@ -818,25 +818,6 @@ float md_trans(float val, trans_para *para)
   return ftmp;
 }
 
-void sort_meas_data(int buf_len, unsigned int val, unsigned int *SORT_DATA)
-{
-  if (buf_len > 6000) buf_len = 6000;
-  for (unsigned int ii = 0; ii < buf_len; ii++)
-  {
-    if (val > SORT_DATA[ii])
-    {
-      int kk = 0;
-      for (unsigned int jj = ii; jj < buf_len - 1; jj++)
-      {
-        *(SORT_DATA + buf_len - 1 - kk) = *(SORT_DATA + buf_len - 2 - kk);
-        kk++;
-      }
-      SORT_DATA[ii] = val;
-      ii = buf_len;
-    }
-  }
-}
-
 void read_mcp3424(void)
 {
   int ch_num, val[3];
@@ -922,14 +903,16 @@ void meas_adc_sample(unsigned long now)
         md_max[ch] = RAW_MD[ch];
         md_min[ch] = RAW_MD[ch];
         md_sum[ch] = 0;
-        if (ch < 2) SORT_DATA[ch][0] = 0;
       }
       if (md_max[ch] < RAW_MD[ch]) md_max[ch] = RAW_MD[ch];
       if (md_min[ch] > RAW_MD[ch]) md_min[ch] = RAW_MD[ch];
       md_sum[ch] += RAW_MD[ch];
       if (ch < 2)
       {
-        sort_meas_data(6000, RAW_MD[ch], SORT_DATA[ch]);
+        if (MCNT < 6000)
+        {
+          SORT_DATA[ch][MCNT] = RAW_MD[ch];
+        }
         LEQ[ch] += pow(10, md_trans(RAW_MD[ch], &T_PARA[ch]) / 10);
       }
     }
@@ -957,23 +940,41 @@ void meas_adc_sample(unsigned long now)
         }
         else
         {
+          int sample_count = MCNT + 1;
+          if (sample_count > 6000) sample_count = 6000;
+
           for (int i = 0; i < 2; i++)
           {
+            // C++標準ライブラリの最高速ソート (Introsort / Quicksort) で降順ソート
+            std::sort(SORT_DATA[i], SORT_DATA[i] + sample_count, std::greater<unsigned int>());
+
+            int idx_l5  = (int)(sample_count * 0.05 + 0.5) - 1;
+            int idx_l10 = (int)(sample_count * 0.10 + 0.5) - 1;
+            int idx_l50 = (int)(sample_count * 0.50 + 0.5) - 1;
+            int idx_l90 = (int)(sample_count * 0.90 + 0.5) - 1;
+            int idx_l95 = (int)(sample_count * 0.95 + 0.5) - 1;
+
+            if (idx_l5 < 0) idx_l5 = 0; else if (idx_l5 >= sample_count) idx_l5 = sample_count - 1;
+            if (idx_l10 < 0) idx_l10 = 0; else if (idx_l10 >= sample_count) idx_l10 = sample_count - 1;
+            if (idx_l50 < 0) idx_l50 = 0; else if (idx_l50 >= sample_count) idx_l50 = sample_count - 1;
+            if (idx_l90 < 0) idx_l90 = 0; else if (idx_l90 >= sample_count) idx_l90 = sample_count - 1;
+            if (idx_l95 < 0) idx_l95 = 0; else if (idx_l95 >= sample_count) idx_l95 = sample_count - 1;
+
             SEND_DATA[sd_cnt++] = md_trans(RAW_MD[i], &T_PARA[i]);
-            SEND_DATA[sd_cnt++] = md_trans((float)md_sum[i] / (MCNT + 1), &T_PARA[i]);
-            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.05 + 0.5) - 1], &T_PARA[i]); // L5
-            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.1 + 0.5) - 1], &T_PARA[i]);  // L10
-            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.5 + 0.5) - 1], &T_PARA[i]);  // L50
-            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.9 + 0.5) - 1], &T_PARA[i]);  // L90
-            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.95 + 0.5) - 1], &T_PARA[i]); // L95
+            SEND_DATA[sd_cnt++] = md_trans((float)md_sum[i] / sample_count, &T_PARA[i]);
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][idx_l5], &T_PARA[i]);  // L5
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][idx_l10], &T_PARA[i]); // L10
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][idx_l50], &T_PARA[i]); // L50
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][idx_l90], &T_PARA[i]); // L90
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][idx_l95], &T_PARA[i]); // L95
             SEND_DATA[sd_cnt++] = md_trans(md_min[i], &T_PARA[i]);
             SEND_DATA[sd_cnt++] = md_trans(md_max[i], &T_PARA[i]);
-            SEND_DATA[sd_cnt++] = 10 * log10(LEQ[i] / (MCNT > 0 ? MCNT : 1));
+            SEND_DATA[sd_cnt++] = 10 * log10(LEQ[i] / sample_count);
           }
           for (int i = 2; i < 4; i++)
           {
             SEND_DATA[sd_cnt++] = md_trans(RAW_MD[i], &T_PARA[i]);
-            SEND_DATA[sd_cnt++] = md_trans((float)md_sum[i] / (MCNT + 1), &T_PARA[i]);
+            SEND_DATA[sd_cnt++] = md_trans((float)md_sum[i] / sample_count, &T_PARA[i]);
           }
           SEND_DATA[sd_cnt] = RAIN_CNT;
           RAIN_CNT = 0;
