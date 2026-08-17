@@ -1,0 +1,344 @@
+// rex noise shake org 2021/08/04
+// adachi
+// mcp3424 独自操作版
+// mcp3424アクセスバージョンアップ エラー発生時、前回のデータを使用する
+// ackが返るまで測定データの送信を繰り返す処理削除
+
+#include <Wire.h>
+#include <Arduino.h>
+#include <math.h>
+#include <EEPROM.h>
+
+unsigned int SMPL_TIME = 100;       // サンプリングタイム
+unsigned int RAIN_SMPL_TIME = 10;   // 雨量計パルスサンプリングタイム 0.01秒
+unsigned long RAIN_DETECT_TIME = 0; // 雨量計パルスを見に行った時間
+unsigned long SEND_TIME = 0;        // データをcommへ送った時間
+
+const int SDA_PIN = 21; // 製品版では外部でプルアップ
+const int SCL_PIN = 22;
+
+#define PULSE_IN 4
+#define LED_STATUS 32
+#define RELAY_OUT 33
+#define XAP 35
+#define CXS 25 // 1:通常 0:セッティング
+#define RX1_PIN 26
+#define TX1_PIN 27
+#define RX2_PIN 16
+#define TX2_PIN 17
+#define ST_IDLE 0
+#define ST_ACK_WAIT 1
+#define ACK_PERIOD 5000 // ackを待つ時間 ms
+
+unsigned int MEAS_PERIOD;  // 転送周期
+unsigned int MODEL_NO = 0; // モデルNo.
+int SEND_STATE = 0;
+float SEND_DATA[25];
+unsigned int SORT_DATA[2][6000];
+unsigned long MEAS_TIME = 0; // 電流測定した時間(ms)
+unsigned int MCNT = 0;
+double LEQ[] = {0, 0};
+char SC_BUF[100];
+int SCB_CNT = 0;
+boolean FIRST_FLAG = true;
+
+boolean RAIN_FLAG = false;     // 10分の雨量測定タイミング
+int RAIN_CNT = 0;              // 雨量カウント数
+int RAIN_PULSE[3] = {0, 0, 0}; // チャタリング除去用
+int PLS = 0;                   // チャタリング除去されたパルス
+int PRE_PLS = 0;
+
+int RAW_MD[4];     // raw測定値
+int PRE_RAW_MD[4]; // 測定が失敗したとき、前回の値を返す
+
+struct trans_para {
+  unsigned int meas_large;
+  unsigned int meas_small;
+  float para_large;
+  float para_small;
+};
+trans_para T_PARA[4];
+
+struct eeprom_struct {
+  char adj_para[256];
+};
+
+unsigned int md_max[4], md_min[4]; // 最大値、最小値
+unsigned long md_sum[4];           // 平均算出のための合計値
+
+float md_trans(float val, trans_para *para) {
+  if ((para->meas_large - para->meas_small) == 0) {
+    return val;
+  }
+  float ftmp = para->para_small + ((float)(para->para_large - para->para_small) / (para->meas_large - para->meas_small)) * (val - para->meas_small);
+  return ftmp;
+}
+
+void sort_meas_data(int buf_len, unsigned int val, unsigned int *SORT_DATA) {
+  if (buf_len > 6000) buf_len = 6000;
+  for (unsigned int ii = 0; ii < buf_len; ii++) {
+    if (val > SORT_DATA[ii]) {
+      int kk = 0;
+      for (unsigned int jj = ii; jj < buf_len - 1; jj++) {
+        *(SORT_DATA + buf_len - 1 - kk) = *(SORT_DATA + buf_len - 2 - kk);
+        kk++;
+      }
+      SORT_DATA[ii] = val;
+      ii = buf_len; 
+    }
+  }
+}
+
+int split(String data, char delimiter, String *dst, int max) {
+  int index = 0;
+  int datalength = data.length();
+  for (int i = 0; i < datalength; i++) {
+    char tmp = data.charAt(i);
+    if (tmp == delimiter) {
+      if (++index >= max) return -1;
+    } else {
+      dst[index] += tmp;
+    }
+  }
+  return (index + 1);
+}
+
+// プロトタイプ宣言（必要に応じて）
+boolean eeprom_read(void);
+void eeprom_write(void);
+
+void trans_param_set(String *para) {
+  int ch_num;
+  String dst[3];
+  eeprom_read();
+  split(*para, ',', dst, 3);
+  ch_num = dst[0].toInt() - 1;
+  if (dst[1] == "0") {
+    T_PARA[ch_num].para_large = dst[2].toFloat();
+    T_PARA[ch_num].meas_large = RAW_MD[ch_num];
+  } else {
+    T_PARA[ch_num].para_small = dst[2].toFloat();
+    T_PARA[ch_num].meas_small = RAW_MD[ch_num];
+  }
+}
+
+void eeprom_write(void) {
+  eeprom_struct ebuf;
+  String sbuf = "";
+  for (int i = 0; i < 4; i++) {
+    sbuf += String(T_PARA[i].meas_large) + "," + String(T_PARA[i].meas_small) + "," + 
+            String(T_PARA[i].para_large) + "," + String(T_PARA[i].para_small) + ",";
+  }
+  sbuf += String(MEAS_PERIOD) + "," + String(MODEL_NO);
+  sbuf.toCharArray(ebuf.adj_para, 256);
+  EEPROM.put<eeprom_struct>(0, ebuf);
+  EEPROM.commit();
+  eeprom_read();
+
+}
+
+boolean eeprom_read(void) {
+  EEPROM.begin(256);
+  eeprom_struct cbuf;
+  EEPROM.get<eeprom_struct>(0, cbuf);
+  String adj_para = cbuf.adj_para;
+  String dst[18];
+  int itmp = split(adj_para, ',', dst, 18);
+  if (itmp != 18) return false;
+  
+  for (int i = 0; i < 4; i++) {
+    T_PARA[i].meas_large = dst[i * 4].toInt();
+    T_PARA[i].meas_small = dst[i * 4 + 1].toInt();
+    T_PARA[i].para_large = dst[i * 4 + 2].toFloat();
+    T_PARA[i].para_small = dst[i * 4 + 3].toFloat();
+  }
+  MEAS_PERIOD = dst[16].toInt();
+  MODEL_NO = dst[17].toInt();
+  return true;
+}
+
+void setup() {
+  pinMode(CXS, INPUT);
+  pinMode(LED_STATUS, INPUT);
+  pinMode(PULSE_IN, INPUT);
+  pinMode(RELAY_OUT, INPUT);
+  pinMode(XAP, INPUT);
+  
+  Wire.begin();
+  Serial.begin(115200);
+  Serial1.begin(115200, SERIAL_8N1, RX1_PIN, TX1_PIN);
+  Serial2.begin(115200, SERIAL_8N1, RX2_PIN, TX2_PIN);
+  pinMode(RX2_PIN, INPUT_PULLUP);
+
+  if (!eeprom_read()) {
+    for (int i = 0; i < 4; i++) {
+      T_PARA[i].meas_large = 1831;
+      T_PARA[i].meas_small = 369;
+      T_PARA[i].para_large = 94;
+      T_PARA[i].para_small = 0;
+    }
+    MEAS_PERIOD = 6000;
+    eeprom_write();
+  }
+  for (int i = 0; i < 4; i++) PRE_RAW_MD[i] = 0;
+
+  Serial.println("product boot");
+  delay(15000); 
+}
+
+void send_meas_data(void) {
+  Serial1.print(",");
+  for (int i = 0; i < 25; i++) {
+    Serial1.print(SEND_DATA[i]);
+    Serial1.print(",");
+  }
+  Serial1.println("");
+}
+
+void read_mcp3424(void) {
+  int ch_num, val[3];
+  static int adc_conv_time = 6;
+  for (ch_num = 0; ch_num < 4; ch_num++) {
+    Wire.beginTransmission(0x68);
+    Wire.write(0x80 + ch_num * 32);
+    Wire.endTransmission();
+    unsigned long spl_start = millis();
+    while (1) {
+      Wire.requestFrom(0x68, 3);
+      for (int i = 0; i < 3; i++) val[i] = Wire.read();
+      if ((val[2] & 0x80) == 0x00) {
+        RAW_MD[ch_num] = val[0] * 256 + val[1];
+        if (RAW_MD[ch_num] > 2047) {
+          RAW_MD[ch_num] = PRE_RAW_MD[ch_num];
+        }
+        PRE_RAW_MD[ch_num] = RAW_MD[ch_num];
+        delay(5);
+        break;
+      } else if (millis() - spl_start >= adc_conv_time) {
+        break;
+      }
+    }
+  }
+  // Serial.print(RAW_MD[0]);
+  // Serial.print(',');
+  // Serial.print(RAW_MD[1]);
+  // Serial.print(',');
+  // Serial.print(RAW_MD[2]);
+  // Serial.print(',');
+  // Serial.println(RAW_MD[3]);
+}
+
+void loop() {
+  unsigned long now = millis();
+  if (digitalRead(CXS) == 0)
+    SMPL_TIME = 1000;
+  else
+    SMPL_TIME = 100;
+
+  while (Serial1.available()) {
+    char key = Serial1.read();
+    // Serial.print(key);
+    SC_BUF[SCB_CNT++] = key;
+    if (key == '\n') {
+      SC_BUF[SCB_CNT - 2] = '\0';
+      String sl_buf = String(SC_BUF);
+      String dst[2];
+      split(sl_buf, '@', dst, 2);
+      if (dst[0] == "PARAM_SET") {
+        trans_param_set(&dst[1]);
+        eeprom_write();
+      } else if (dst[0] == "OPE_PARAM_SET") {
+        String dst2[2];
+        split(dst[1], ',', dst2, 2);
+        MEAS_PERIOD = dst2[0].toInt();
+        MODEL_NO = dst2[1].toInt();
+        if (MEAS_PERIOD < 60 || MEAS_PERIOD > 3600) MEAS_PERIOD = 3600;
+        eeprom_write();
+      } else if (dst[0] == "RAIN_MEASURE") {
+        RAIN_FLAG = true;
+      }
+      SCB_CNT = 0;
+      break;
+    }
+  }
+
+  if (now - RAIN_DETECT_TIME >= RAIN_SMPL_TIME) {
+    RAIN_DETECT_TIME = now;
+    RAIN_PULSE[2] = RAIN_PULSE[1];
+    RAIN_PULSE[1] = RAIN_PULSE[0];
+    RAIN_PULSE[0] = digitalRead(PULSE_IN);
+    if (RAIN_PULSE[2] == 1 && RAIN_PULSE[1] == 1 && RAIN_PULSE[0] == 1) PLS = 1;
+    else if (RAIN_PULSE[2] == 0 && RAIN_PULSE[1] == 0 && RAIN_PULSE[0] == 0) PLS = 0;
+    if (PLS == 0 && PRE_PLS == 1) RAIN_CNT++;
+    PRE_PLS = PLS;
+  }
+
+  if (now - MEAS_TIME >= SMPL_TIME) {
+    MEAS_TIME = now;
+    read_mcp3424();
+    for (int ch = 0; ch < 4; ch++) {
+      if (MCNT == 0) {
+        md_max[ch] = RAW_MD[ch];
+        md_min[ch] = RAW_MD[ch];
+        md_sum[ch] = 0;
+        if (ch < 2) SORT_DATA[ch][0] = 0;
+      }
+      if (md_max[ch] < RAW_MD[ch]) md_max[ch] = RAW_MD[ch];
+      if (md_min[ch] > RAW_MD[ch]) md_min[ch] = RAW_MD[ch];
+      md_sum[ch] += RAW_MD[ch];
+      if (ch < 2) {
+        sort_meas_data(6000, RAW_MD[ch], SORT_DATA[ch]);
+        LEQ[ch] += pow(10, md_trans(RAW_MD[ch], &T_PARA[ch]) / 10);
+      }
+    }
+
+    if (digitalRead(CXS) == 0) {
+      Serial1.print(",");
+      for (int i = 0; i < 4; i++) {
+        Serial1.print(md_trans(RAW_MD[i], &T_PARA[i])); Serial1.print(",");
+        Serial1.print(T_PARA[i].para_large); Serial1.print(",");
+        Serial1.print(T_PARA[i].para_small); Serial1.print(",");
+      }
+      Serial1.print(MEAS_PERIOD); Serial1.print(",");
+      Serial1.print(MODEL_NO); Serial1.println(",");
+    } else {
+      if (FIRST_FLAG || ((MCNT >= MEAS_PERIOD * 10 - 1) && MODEL_NO != 3) || RAIN_FLAG) {
+        int sd_cnt = 0;
+        RAIN_FLAG = false;
+        if (FIRST_FLAG) {
+          FIRST_FLAG = false;
+          for (int i = 0; i < 4; i++) {
+            float ftmp = md_trans(RAW_MD[i], &T_PARA[i]);
+            int rcnt = (i < 2) ? 10 : 2;
+            for (int j = 0; j < rcnt; j++) SEND_DATA[sd_cnt++] = ftmp;
+          }
+        } else {
+          for (int i = 0; i < 2; i++) {
+            SEND_DATA[sd_cnt++] = md_trans(RAW_MD[i], &T_PARA[i]);
+            SEND_DATA[sd_cnt++] = md_trans((float)md_sum[i] / (MCNT + 1), &T_PARA[i]);
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.05 + 0.5) - 1], &T_PARA[i]); // L5
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.1 + 0.5) - 1], &T_PARA[i]);  // L10
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.5 + 0.5) - 1], &T_PARA[i]);  // L50
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.9 + 0.5) - 1], &T_PARA[i]);  // L90
+            SEND_DATA[sd_cnt++] = md_trans(SORT_DATA[i][(int)((MCNT + 1) * 0.95 + 0.5) - 1], &T_PARA[i]); // L95
+            SEND_DATA[sd_cnt++] = md_trans(md_min[i], &T_PARA[i]);
+            SEND_DATA[sd_cnt++] = md_trans(md_max[i], &T_PARA[i]);
+            SEND_DATA[sd_cnt++] = 10 * log10(LEQ[i] / MCNT);
+          }
+          for (int i = 2; i < 4; i++) {
+            SEND_DATA[sd_cnt++] = md_trans(RAW_MD[i], &T_PARA[i]);
+            SEND_DATA[sd_cnt++] = md_trans((float)md_sum[i] / (MCNT + 1), &T_PARA[i]);
+          }
+          SEND_DATA[sd_cnt] = RAIN_CNT;
+          RAIN_CNT = 0;
+        }
+        send_meas_data();
+        SEND_STATE = ST_ACK_WAIT;
+        SEND_TIME = millis();
+        MCNT = 0;
+      } else {
+        MCNT++;
+      }
+    }
+  }
+}
