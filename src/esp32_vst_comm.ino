@@ -605,6 +605,7 @@ void setup_awsiot(void);
 void connect_awsiot(void);
 void mqttCallback(char *topic, byte *payload, unsigned int length);
 void comm_publish_meas_data(float *sdata);
+void start_ap_mode(void);
 void wifi_access_point(void);
 void wifi_scan(void);
 void favicon_response(void);
@@ -1094,21 +1095,21 @@ void wifi_connect(void)
 
   while (WiFi.status() != WL_CONNECTED)
   {
+    if (digitalRead(XAP_BTN) == 0 && AP_MODE == false)
+    {
+      Serial.println("AP button pressed during wifi_connect! Switching to SoftAP Mode...");
+      if (timer) timerAlarmDisable(timer);
+      start_ap_mode();
+      return;
+    }
     Serial.print("WiFi connecting ");
     Serial.println(i++);
     if (i == 3)
     {
-      if (CHATTERING_AP[0] == 0 && CHATTERING_AP[1] == 0 && CHATTERING_AP[2] == 0 && AP_MODE == false)
-      {
-        esp_restart();
-      }
       WiFi.begin();
       i = 0;
     }
-    else
-    {
-      delay(1000);
-    }
+    delay(1000);
   }
   if (time_adj_flag)
   {
@@ -1803,6 +1804,25 @@ void disp_info(void)
 }
 
 // -----------------------------------------------------------------------------
+// SoftAP モード開始処理
+// -----------------------------------------------------------------------------
+void start_ap_mode(void)
+{
+  if (AP_MODE) return;
+  Serial.println("Starting in SoftAP Mode...");
+  if (timer) timerAlarmDisable(timer);
+  if (mqttClient.connected()) mqttClient.disconnect();
+  digitalWrite(STATUS_LED, HIGH);
+  AP_MODE = true;
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str());
+  delay(100);
+  server.begin();
+  Serial.println("HTTP Server started in AP mode");
+  wifi_scan(); // 起動時に事前スキャンを実行（クライアント接続中のチャネル切替による切断を防止）
+}
+
+// -----------------------------------------------------------------------------
 // Arduino setup()
 // -----------------------------------------------------------------------------
 void setup()
@@ -1827,15 +1847,7 @@ void setup()
   // APボタン押下判定
   if (digitalRead(XAP_BTN) == 0)
   {
-    Serial.println("Starting in SoftAP Mode...");
-    digitalWrite(STATUS_LED, HIGH);
-    AP_MODE = true;
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str());
-    delay(100);
-    server.begin();
-    Serial.println("HTTP Server started in AP mode");
-    wifi_scan(); // 起動時に事前スキャンを実行（クライアント接続中のチャネル切替による切断を防止）
+    start_ap_mode();
   }
   else
   {
@@ -1848,7 +1860,7 @@ void setup()
 
     wifi_connect();
 
-    if (PARA.model_no != 2) // Model 2 (Local Server) 以外はAWS接続
+    if (!AP_MODE && PARA.model_no != 2) // Model 2 (Local Server) 以外はAWS接続
     {
       setup_awsiot();
       aws_connect();
@@ -1868,7 +1880,8 @@ void loop()
   if (CHATTERING_CNT >= 3) CHATTERING_CNT = 0;
   if (CHATTERING_AP[0] == 0 && CHATTERING_AP[1] == 0 && CHATTERING_AP[2] == 0 && AP_MODE == false)
   {
-    esp_restart();
+    Serial.println("AP button pressed during operation! Switching to SoftAP Mode...");
+    start_ap_mode();
   }
 
   if (AP_MODE)
