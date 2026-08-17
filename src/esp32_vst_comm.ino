@@ -608,6 +608,8 @@ void comm_publish_meas_data(float *sdata);
 void start_ap_mode(void);
 void wifi_access_point(void);
 void wifi_scan(void);
+void check_async_wifi_scan(void);
+void wifi_rescan_proc(void);
 void favicon_response(void);
 String HTML_Select_Box_str(String Sel_Ssid);
 int split(String data, char delimiter, String *dst, int max);
@@ -1333,28 +1335,82 @@ void html_send(boolean sta_connected, String message1, String message2, String c
   client.print(html_tag2);
 }
 
-void wifi_scan(void)
+void check_async_wifi_scan(void)
 {
-  Serial.println("scan start");
-  ssid_num = WiFi.scanNetworks();
-  if (ssid_num > 30) ssid_num = 30;
-  Serial.println("scan done\r\n");
-  if (ssid_num == 0)
+  int16_t scan_res = WiFi.scanComplete();
+  if (scan_res >= 0)
   {
-    Serial.println("no networks found\r\n");
-  }
-  else
-  {
-    Serial.printf("%d networks found\r\n\r\n", ssid_num);
+    ssid_num = (scan_res > 30) ? 30 : scan_res;
+    Serial.printf("WiFi scan completed: %d networks found\n", ssid_num);
     for (int i = 0; i < ssid_num; ++i)
     {
       ssid_str[i] = WiFi.SSID(i);
       String wifi_auth_open = ((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
-      ssid_rssi_str[i] = ssid_str[i] + " (" + WiFi.RSSI(i) + "dBm)" + wifi_auth_open;
-      Serial.printf("%d: %s\r\n", i, ssid_rssi_str[i].c_str());
-      delay(10);
+      ssid_rssi_str[i] = ssid_str[i] + " (" + String(WiFi.RSSI(i)) + "dBm)" + wifi_auth_open;
+      Serial.printf("%d: %s\n", i, ssid_rssi_str[i].c_str());
     }
+    WiFi.scanDelete();
   }
+}
+
+void wifi_scan(void)
+{
+  Serial.println("scan start");
+  int16_t n = WiFi.scanNetworks(false, false, false, 120);
+  if (n < 0) n = 0;
+  ssid_num = (n > 30) ? 30 : n;
+  Serial.printf("scan done: %d networks found\r\n", ssid_num);
+  for (int i = 0; i < ssid_num; ++i)
+  {
+    ssid_str[i] = WiFi.SSID(i);
+    String wifi_auth_open = ((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
+    ssid_rssi_str[i] = ssid_str[i] + " (" + String(WiFi.RSSI(i)) + "dBm)" + wifi_auth_open;
+    Serial.printf("%d: %s\r\n", i, ssid_rssi_str[i].c_str());
+  }
+  WiFi.scanDelete();
+}
+
+void wifi_rescan_proc(void)
+{
+  Serial.println("GET /wifi_rescan");
+  while (client.available()) client.read();
+
+  // 非同期スキャンを開始（1チャネルあたり120msで高速スキャン）
+  if (WiFi.scanComplete() != -1)
+  {
+    WiFi.scanNetworks(true, false, false, 120);
+    Serial.println("Async WiFi scan started...");
+  }
+
+  // クライアントへ即座にリダイレクト付きの待機画面を送信
+  String html_scan = "<!DOCTYPE HTML>\r\n<html>\r\n<head>\r\n"
+                     "<meta charset='utf-8'>\r\n"
+                     "<meta name='viewport' content='width=device-width, initial-scale=1'>\r\n"
+                     "<meta http-equiv='refresh' content='3;url=/wifi_set/'>\r\n"
+                     "<style>\r\n"
+                     "  html { font-family: Helvetica, Arial, sans-serif; display: inline-block; margin: 0px auto; text-align: center; }\r\n"
+                     "  body { margin-top: 50px; }\r\n"
+                     "  h1 { font-size: 22px; color: #333; }\r\n"
+                     "  p { font-size: 15px; color: #666; }\r\n"
+                     "  .loader { margin: 24px auto; border: 5px solid #f3f3f3; border-top: 5px solid #2196F3; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }\r\n"
+                     "  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }\r\n"
+                     "  a { color: navy; text-decoration: none; font-size: 15px; }\r\n"
+                     "</style>\r\n"
+                     "</head>\r\n"
+                     "<body>\r\n"
+                     "<h1>Wi-Fiを再検索中...</h1>\r\n"
+                     "<div class='loader'></div>\r\n"
+                     "<p>周囲のWi-Fiアクセスポイントをスキャンしています。<br>約3秒後に自動で設定画面へ戻ります。</p>\r\n"
+                     "<br>\r\n"
+                     "<a href='/wifi_set/'>自動で切り替わらない場合はこちら</a>\r\n"
+                     "</body>\r\n</html>\r\n\r\n";
+
+  client.print(html_res_head);
+  client.print(html_scan);
+  client.flush();
+  delay(50);
+  client.stop();
+  Serial.println("client disconnected (rescan page sent)");
 }
 
 void wifi_set_proc()
@@ -1365,6 +1421,15 @@ void wifi_set_proc()
     char c = client.read();
     Serial.write(c);
   }
+
+  // スキャン実行中なら最大1秒待機
+  unsigned long start_wait = millis();
+  while (WiFi.scanComplete() == -1 && (millis() - start_wait < 1000))
+  {
+    delay(50);
+  }
+  check_async_wifi_scan();
+
   html_send(false, "Connection close", "", "#FFF", html_res_head, html_tag1, html_tag2);
   client.flush();
   delay(50);
@@ -1544,17 +1609,12 @@ void wifi_access_point()
         }
         else if (req_str.indexOf("GET /wifi_rescan") >= 0)
         {
-          wifi_scan();
           pre_url = "GET /wifi_set";
-          wifi_set_proc();
+          wifi_rescan_proc();
           req_str = "";
         }
         else if (req_str.indexOf("GET /wifi_set") >= 0)
         {
-          if (ssid_num == 0)
-          {
-            wifi_scan();
-          }
           pre_url = "GET /wifi_set";
           wifi_set_proc();
           req_str = "";
@@ -1888,6 +1948,7 @@ void loop()
   {
     SMPL_TIME = 1000;
     digitalWrite(STATUS_LED, HIGH);
+    check_async_wifi_scan();
     wifi_access_point();
     meas_rain_sample(now);
     meas_adc_sample(now);
