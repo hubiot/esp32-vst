@@ -1486,7 +1486,7 @@ void wifi_set_submit(String req_str)
         LIP = WiFi.localIP();
         Serial.print("\r\nWiFi connected: ");
         Serial.println(LIP);
-        html_send(true, Selected_SSID_str, "Set OK! Push RESET<br>", "#00F", html_res_head, html_tag1, html_tag2);
+        html_send(true, Selected_SSID_str, "本体を再起動しました<br>", "#00F", html_res_head, html_tag1, html_tag2);
         exit_flag = true;
       }
       if (exit_flag) break;
@@ -1498,9 +1498,17 @@ void wifi_set_submit(String req_str)
     WiFi.disconnect(false);
   }
   client.flush();
-  delay(50);
+  delay(100);
   client.stop();
   Serial.println("client disconnected");
+
+  // WiFi接続に成功してIPアドレスを取得できた場合、再起動する
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println("WiFi connected & IP obtained. Rebooting ESP32...");
+    delay(1000); // レスポンスがブラウザに確実に届くよう待機
+    esp_restart();
+  }
 }
 
 String get_trans_param_str()
