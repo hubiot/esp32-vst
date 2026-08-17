@@ -605,7 +605,10 @@ void setup_awsiot(void);
 void connect_awsiot(void);
 void mqttCallback(char *topic, byte *payload, unsigned int length);
 void comm_publish_meas_data(float *sdata);
+boolean check_ap_button_pressed(void);
+void wait_button_released(void);
 void start_ap_mode(void);
+void start_normal_mode(void);
 void wifi_access_point(void);
 void wifi_scan(void);
 void check_async_wifi_scan(void);
@@ -1040,8 +1043,15 @@ void setup_awsiot()
 
 void connect_awsiot()
 {
-  while (!mqttClient.connected())
+  while (!mqttClient.connected() && !AP_MODE)
   {
+    if (check_ap_button_pressed())
+    {
+      Serial.println("AP button pressed during connect_awsiot! Switching to SoftAP Mode...");
+      if (timer) timerAlarmDisable(timer);
+      start_ap_mode();
+      return;
+    }
     Serial.print("Attempting MQTT connection...");
     if (mqttClient.connect(CLIENT_ID.c_str()))
     {
@@ -1052,7 +1062,17 @@ void connect_awsiot()
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
       Serial.println(" try again in 5 seconds");
-      delay(5000);
+      for (int k = 0; k < 50; k++)
+      {
+        if (check_ap_button_pressed() && !AP_MODE)
+        {
+          Serial.println("AP button pressed during MQTT retry! Switching to SoftAP Mode...");
+          if (timer) timerAlarmDisable(timer);
+          start_ap_mode();
+          return;
+        }
+        delay(100);
+      }
     }
   }
 }
@@ -1070,6 +1090,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
 
 void aws_connect(void)
 {
+  if (AP_MODE) return;
   if (timer)
   {
     timerAlarmWrite(timer, 21000000, false);
@@ -1086,6 +1107,7 @@ void aws_connect(void)
 
 void wifi_connect(void)
 {
+  if (AP_MODE) return;
   int i = 0;
   boolean time_adj_flag = (WiFi.status() != WL_CONNECTED);
   if (timer)
@@ -1095,25 +1117,28 @@ void wifi_connect(void)
     timerAlarmEnable(timer);
   }
 
-  while (WiFi.status() != WL_CONNECTED)
+  while (WiFi.status() != WL_CONNECTED && !AP_MODE)
   {
-    if (digitalRead(XAP_BTN) == 0 && AP_MODE == false)
+    for (int k = 0; k < 10; k++)
     {
-      Serial.println("AP button pressed during wifi_connect! Switching to SoftAP Mode...");
-      if (timer) timerAlarmDisable(timer);
-      start_ap_mode();
-      return;
+      if (check_ap_button_pressed() && AP_MODE == false)
+      {
+        Serial.println("AP button pressed during wifi_connect! Switching to SoftAP Mode...");
+        if (timer) timerAlarmDisable(timer);
+        start_ap_mode();
+        return;
+      }
+      delay(100);
     }
     Serial.print("WiFi connecting ");
     Serial.println(i++);
-    if (i == 3)
+    if (i >= 3)
     {
       WiFi.begin();
       i = 0;
     }
-    delay(1000);
   }
-  if (time_adj_flag)
+  if (time_adj_flag && !AP_MODE)
   {
     set_sysclcok();
   }
@@ -1122,7 +1147,9 @@ void wifi_connect(void)
 
 void aws_mqtt_publish(char *str)
 {
+  if (AP_MODE) return;
   aws_connect();
+  if (AP_MODE) return;
   mqttClient.loop();
   Serial.print("Publishing: ");
   Serial.println(str);
@@ -1132,19 +1159,30 @@ void aws_mqtt_publish(char *str)
 
 void connect_local_host(void)
 {
+  if (AP_MODE) return;
   if (!client.connect(PARA.host_ip.c_str(), 5000))
   {
     Serial.println("Local connection failed");
     int i = 0;
-    while (WiFi.status() != WL_CONNECTED)
+    while (WiFi.status() != WL_CONNECTED && !AP_MODE)
     {
+      for (int k = 0; k < 10; k++)
+      {
+        if (check_ap_button_pressed() && !AP_MODE)
+        {
+          Serial.println("AP button pressed during connect_local_host! Switching to SoftAP Mode...");
+          if (timer) timerAlarmDisable(timer);
+          start_ap_mode();
+          return;
+        }
+        delay(100);
+      }
       Serial.println(i++);
-      if (i == 3)
+      if (i >= 3)
       {
         WiFi.begin();
         i = 0;
       }
-      else delay(1000);
     }
   }
 }
@@ -1282,6 +1320,7 @@ void comm_publish_meas_data(float *sdata)
   }
 
   wifi_connect();
+  if (AP_MODE) return;
   if (PARA.model_no != 2) // Model No.2 以外はAWSクラウドへ送信
   {
     aws_mqtt_publish(pub_msg);
@@ -1872,6 +1911,51 @@ void disp_info(void)
 }
 
 // -----------------------------------------------------------------------------
+// APボタン チャタリング防止＆立ち下がりエッジ検出 (40ms確定)
+// -----------------------------------------------------------------------------
+boolean check_ap_button_pressed(void)
+{
+  static unsigned long last_debounce_time = 0;
+  static int last_raw_state = HIGH;
+  static int stable_state = HIGH;
+
+  int raw_now = digitalRead(XAP_BTN);
+  unsigned long now = millis();
+
+  if (raw_now != last_raw_state)
+  {
+    last_debounce_time = now;
+    last_raw_state = raw_now;
+  }
+
+  if ((now - last_debounce_time) >= 40) // 40ms以上状態が安定しているか
+  {
+    if (raw_now != stable_state)
+    {
+      stable_state = raw_now;
+      if (stable_state == LOW)
+      {
+        return true; // 新規押下イベント（立ち下がり確定）
+      }
+    }
+  }
+  return false;
+}
+
+// -----------------------------------------------------------------------------
+// ボタン解放待機 (モード切替時の長押しによる即座の再切替を防止)
+// -----------------------------------------------------------------------------
+void wait_button_released(void)
+{
+  unsigned long start = millis();
+  while (digitalRead(XAP_BTN) == LOW && (millis() - start < 3000))
+  {
+    delay(20);
+  }
+  delay(50); // チャタリング終了を確実に待機
+}
+
+// -----------------------------------------------------------------------------
 // SoftAP モード開始処理
 // -----------------------------------------------------------------------------
 void start_ap_mode(void)
@@ -1882,12 +1966,54 @@ void start_ap_mode(void)
   if (mqttClient.connected()) mqttClient.disconnect();
   digitalWrite(STATUS_LED, HIGH);
   AP_MODE = true;
+
+  // ボタンが離されるのを待機
+  wait_button_released();
+
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str());
   delay(100);
   server.begin();
   Serial.println("HTTP Server started in AP mode");
   wifi_scan(); // 起動時に事前スキャンを実行（クライアント接続中のチャネル切替による切断を防止）
+}
+
+// -----------------------------------------------------------------------------
+// 通常モード開始処理 (SoftAP終了)
+// -----------------------------------------------------------------------------
+void start_normal_mode(void)
+{
+  if (!AP_MODE) return;
+  Serial.println("Switching from SoftAP to Normal Mode...");
+  AP_MODE = false;
+  digitalWrite(STATUS_LED, LOW);
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+
+  // ボタンが離されるのを待機
+  wait_button_released();
+
+  // Watchdog timer初期化
+  if (timer == NULL)
+  {
+    timer = timerBegin(0, 80, true);
+    timerAttachInterrupt(timer, &resetModule, true);
+  }
+  else
+  {
+    timerAlarmWrite(timer, 8000000, false);
+    timerWrite(timer, 0);
+    timerAlarmEnable(timer);
+  }
+
+  wifi_connect();
+
+  if (!AP_MODE && PARA.model_no != 2) // Model 2 (Local Server) 以外はAWS接続
+  {
+    setup_awsiot();
+    aws_connect();
+  }
+  Serial.println("Normal Mode started");
 }
 
 // -----------------------------------------------------------------------------
@@ -1912,8 +2038,15 @@ void setup()
 
   digitalWrite(STATUS_LED, LOW);
 
-  // APボタン押下判定
-  if (digitalRead(XAP_BTN) == 0)
+  // 起動時のAPボタン押下判定（40ms安定確認でノイズによる誤動作を防止）
+  boolean ap_boot_req = false;
+  if (digitalRead(XAP_BTN) == LOW)
+  {
+    delay(40);
+    if (digitalRead(XAP_BTN) == LOW) ap_boot_req = true;
+  }
+
+  if (ap_boot_req)
   {
     start_ap_mode();
   }
@@ -1943,13 +2076,19 @@ void loop()
 {
   unsigned long now = millis();
 
-  // APボタンのチャタリング監視
-  CHATTERING_AP[CHATTERING_CNT++] = digitalRead(XAP_BTN);
-  if (CHATTERING_CNT >= 3) CHATTERING_CNT = 0;
-  if (CHATTERING_AP[0] == 0 && CHATTERING_AP[1] == 0 && CHATTERING_AP[2] == 0 && AP_MODE == false)
+  // APボタンのチャタリング防止＆エッジ検出 (40ms確定)
+  if (check_ap_button_pressed())
   {
-    Serial.println("AP button pressed during operation! Switching to SoftAP Mode...");
-    start_ap_mode();
+    if (AP_MODE == false)
+    {
+      Serial.println("AP button pressed! Switching to SoftAP Mode...");
+      start_ap_mode();
+    }
+    else
+    {
+      Serial.println("AP button pressed! Switching to Normal Mode...");
+      start_normal_mode();
+    }
   }
 
   if (AP_MODE)
