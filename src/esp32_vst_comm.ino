@@ -1277,7 +1277,7 @@ void comm_publish_meas_data(float *sdata) {
       Serial.println("RELAY OFF");
     }
 
-    sprintf(st_rain, "%.1f", ftmp);
+    sprintf(st_rain, "%.1f", RAIN_OTH);
     sprintf(st_ch2, "%.1f", sdata[11]); // ch2 ave
     sprintf(st_ch3, "%.1f", sdata[21]); // ch3 ave
     sprintf(st_ch4, "%.1f", sdata[23]); // ch4 ave
