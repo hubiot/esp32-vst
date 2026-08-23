@@ -267,7 +267,7 @@ const char *str_factory = R"rawliteral(
         <option value="1">Normal 4ch cloud</option>
         <option value="2">Normal 4ch local</option>
         <option value="3">RAIN</option>
-        <option value="4">NOISE/VIBRATION(00,10,,,50)</option>
+        <option value="4">NOISE/VIBRATION(Every 10 minutes on the clock)</option>
       </select>
       <button type='submit' name='factory_param_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
@@ -338,7 +338,8 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
     </style>
   </head>
   <body>
-    <h1>ch1:noise ch2:vibration (00,10,,,50)</h1>
+    <h1>正時基準10分周期</h1>
+    <h1>ch1:noise ch2:vibration</h1>
     <h1>ch3:average ch4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
@@ -1256,12 +1257,12 @@ void comm_publish_meas_data(float *sdata) {
   String dt_ch2 = "";
   // L5, L10, L50, L90, L95, MIN, MAX, LEQ (sdata[2]〜sdata[9])
   for (int itmp = 0; itmp < 8; itmp++) {
-    dt_ch1 += String(sdata[itmp + 2], 1);
+    dt_ch1 += String(sdata[itmp + 2], 2);
     if (itmp < 7)
       dt_ch1 += "@";
   }
   for (int itmp = 0; itmp < 8; itmp++) {
-    dt_ch2 += String(sdata[itmp + 12], 1);
+    dt_ch2 += String(sdata[itmp + 12], 2);
     if (itmp < 7)
       dt_ch2 += "@";
   }
@@ -1275,8 +1276,8 @@ void comm_publish_meas_data(float *sdata) {
   case 4: // rex 騒音振動 (00,10,,,50 定時送信)
     dt_ch1.toCharArray(st_ch1, 200);
     dt_ch2.toCharArray(st_ch2, 200);
-    sprintf(st_ch3, "%.1f", sdata[21]); // ch3 ave
-    sprintf(st_ch4, "%.1f", sdata[23]); // ch4 ave
+    sprintf(st_ch3, "%.2f", sdata[21]); // ch3 ave
+    sprintf(st_ch4, "%.2f", sdata[23]); // ch4 ave
     sprintf(pub_msg,
             "{\"id\":\"rx01\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\","
             "\"ch4\":\"%s\"}",
@@ -1294,7 +1295,7 @@ void comm_publish_meas_data(float *sdata) {
     } else {
       RAIN_OTH += ftmp;
     }
-    Serial.printf("%d- RAIN_OTH : %.1f\n", RCNT++, RAIN_OTH);
+    Serial.printf("%d- RAIN_OTH : %.2f\n", RCNT++, RAIN_OTH);
 
     // リレー制御
     if (RAIN_OTH > PARA.shreshold) {
@@ -1305,10 +1306,10 @@ void comm_publish_meas_data(float *sdata) {
       Serial.println("RELAY OFF");
     }
 
-    sprintf(st_rain, "%.1f", RAIN_OTH);
-    sprintf(st_ch2, "%.1f", sdata[11]); // ch2 ave
-    sprintf(st_ch3, "%.1f", sdata[21]); // ch3 ave
-    sprintf(st_ch4, "%.1f", sdata[23]); // ch4 ave
+    sprintf(st_rain, "%.2f", RAIN_OTH);
+    sprintf(st_ch2, "%.2f", sdata[11]); // ch2 ave
+    sprintf(st_ch3, "%.2f", sdata[21]); // ch3 ave
+    sprintf(st_ch4, "%.2f", sdata[23]); // ch4 ave
     sprintf(st_mon, "%02d", tm->tm_mon + 1);
     sprintf(st_day, "%02d", tm->tm_mday);
     sprintf(st_hour, "%02d", tm->tm_hour);
@@ -1346,16 +1347,16 @@ void comm_publish_meas_data(float *sdata) {
   case 1: // ノーマル4ch cloud
   case 2: // ノーマル4ch local
     // ch1
-    sprintf(st_ch1, "%.1f",
+    sprintf(st_ch1, "%.2f",
             (PARA.s_n_xave_flg[0] == "1") ? sdata[0] : sdata[1]);
     // ch2
-    sprintf(st_ch2, "%.1f",
+    sprintf(st_ch2, "%.2f",
             (PARA.s_n_xave_flg[1] == "1") ? sdata[10] : sdata[11]);
     // ch3
-    sprintf(st_ch3, "%.1f",
+    sprintf(st_ch3, "%.2f",
             (PARA.s_n_xave_flg[2] == "1") ? sdata[20] : sdata[21]);
     // ch4
-    sprintf(st_ch4, "%.1f",
+    sprintf(st_ch4, "%.2f",
             (PARA.s_n_xave_flg[3] == "1") ? sdata[22] : sdata[23]);
 
     sprintf(pub_msg,
@@ -1396,7 +1397,7 @@ String HTML_Select_Box_str(String Sel_Ssid) {
   str += "  </select><br>\r\n";
   str += "  <a href='/wifi_rescan' style='display:inline-block; padding:4px "
          "10px; margin:4px 0 12px 0; background:#e0e0e0; border-radius:4px; "
-         "font-size:13px; color:#333;'>再検索 (Rescan)</a><br>\r\n";
+         "font-size:13px; color:#333;'>再検索</a><br>\r\n";
   str += "  <label for='pass1'><b>Password:</b></label><br>\r\n";
   str += "  <input type='password' name='pass1' id='pass1'><br>\r\n";
   str += "  <button type='submit' name='ssid_sel_submit' value='send' "
@@ -1496,8 +1497,6 @@ void wifi_rescan_proc(void) {
       "<div class='loader'></div>\r\n"
       "<p>周囲のWi-Fiアクセスポイントをスキャンしています。<br>"
       "約3秒後に自動で設定画面へ戻ります。</p>\r\n"
-      "<br>\r\n"
-      "<a href='/wifi_set/'>自動で切り替わらない場合はこちら</a>\r\n"
       "</body>\r\n</html>\r\n\r\n";
 
   client.print(html_res_head);
@@ -1934,8 +1933,8 @@ void disp_info(void) {
     break;
   case 4:
     Serial.println(
-        "NOISE/VIBRATION(00,10,,,50) (CH1:noise, CH2:vibration, CH3:ave, "
-        "CH4:ave / 10-min periodic)");
+        "NOISE/VIBRATION(Every 10 minutes on the clock) (CH1:noise, "
+        "CH2:vibration, CH3:ave, CH4:ave / 10-min periodic)");
     break;
   }
   Serial.printf("Meas Period: %d sec\n", PARA.meas_period);
