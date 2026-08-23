@@ -50,7 +50,7 @@ struct trans_para {
 
 struct para_d {
   int model_no; // 0: rex noise/vibration, 1: 4ch normal cloud, 2: 4ch normal
-                // local, 3: rex rain
+                // local, 3: rex rain, 4: rex noise/vibration (00,10,,,50)
   String s_n_xave_flg[4];   // 演算 0:ave 1:normal (ch1-ch4)
   String host_ip;           // host ip (Local Server用)
   float shreshold;          // スレッシュホールド (雨量警報用)
@@ -267,6 +267,7 @@ const char *str_factory = R"rawliteral(
         <option value="1">Normal 4ch cloud</option>
         <option value="2">Normal 4ch local</option>
         <option value="3">RAIN</option>
+        <option value="4">NOISE/VIBRATION(00,10,,,50)</option>
       </select>
       <button type='submit' name='factory_param_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
@@ -313,6 +314,31 @@ const char *str_rex_noise_shake = R"rawliteral(
   </head>
   <body>
     <h1>ch1:noise ch2:vibration</h1>
+    <h1>ch3:average ch4:average</h1>
+    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
+    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
+  </body>
+</html>)rawliteral";
+
+const char *str_rex_noise_shake_10min = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+    </style>
+  </head>
+  <body>
+    <h1>ch1:noise ch2:vibration (00,10,,,50)</h1>
     <h1>ch3:average ch4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
@@ -777,7 +803,7 @@ boolean eeprom_read(void) {
     return false;
   } else {
     PARA.model_no = cfg.model_no;
-    if (PARA.model_no < 0 || PARA.model_no > 3)
+    if (PARA.model_no < 0 || PARA.model_no > 4)
       PARA.model_no = 0;
     for (int i = 0; i < 4; i++) {
       PARA.s_n_xave_flg[i] = String(cfg.s_n_xave_flg[i]);
@@ -901,7 +927,8 @@ void meas_adc_sample_step(void) {
   } else {
     // 通常モード: 送信タイミング判定
     if (FIRST_FLAG ||
-        ((MCNT >= PARA.meas_period * 10 - 1) && PARA.model_no != 3) ||
+        ((MCNT >= PARA.meas_period * 10 - 1) && PARA.model_no != 3 &&
+         PARA.model_no != 4) ||
         RAIN_FLAG) {
       int sd_cnt = 0;
       RAIN_FLAG = false;
@@ -1245,6 +1272,7 @@ void comm_publish_meas_data(float *sdata) {
 
   switch (PARA.model_no) {
   case 0: // rex 騒音振動
+  case 4: // rex 騒音振動 (00,10,,,50 定時送信)
     dt_ch1.toCharArray(st_ch1, 200);
     dt_ch2.toCharArray(st_ch2, 200);
     sprintf(st_ch3, "%.1f", sdata[21]); // ch3 ave
@@ -1573,9 +1601,9 @@ String get_trans_param_str() {
   // 12個の変換パラメータ (val, large, small) x 4ch + 測定周期 + モデルNo
   String str = "";
   for (int i = 0; i < 4; i++) {
-    str += String(md_trans(RAW_MD[i], &T_PARA[i]), 1) + ",";
-    str += String(T_PARA[i].para_large, 1) + ",";
-    str += String(T_PARA[i].para_small, 1) + ",";
+    str += String(md_trans(RAW_MD[i], &T_PARA[i]), 2) + ",";
+    str += String(T_PARA[i].para_large, 2) + ",";
+    str += String(T_PARA[i].para_small, 2) + ",";
   }
   return str;
 }
@@ -1794,7 +1822,7 @@ void wifi_access_point() {
             String stmp = req_str.substring(
                 idx0 + 9, req_str.indexOf("&factory_param_submit"));
             int m_no = stmp.toInt();
-            if (m_no >= 0 && m_no <= 3) {
+            if (m_no >= 0 && m_no <= 4) {
               PARA.model_no = m_no;
               eeprom_write();
               Serial.printf("Factory Model set: %d\n", PARA.model_no);
@@ -1832,6 +1860,9 @@ void wifi_access_point() {
             break;
           case 3:
             client.print(str_rex_rain);
+            break;
+          case 4:
+            client.print(str_rex_noise_shake_10min);
             break;
           default:
             break;
@@ -1900,6 +1931,11 @@ void disp_info(void) {
     break;
   case 3:
     Serial.println("RAIN");
+    break;
+  case 4:
+    Serial.println(
+        "NOISE/VIBRATION(00,10,,,50) (CH1:noise, CH2:vibration, CH3:ave, "
+        "CH4:ave / 10-min periodic)");
     break;
   }
   Serial.printf("Meas Period: %d sec\n", PARA.meas_period);
@@ -2102,8 +2138,8 @@ void loop() {
       }
     }
 
-    // 雨量計モード (Model 3) の定時トリガー (10分周期) & NTP同期 (毎日 03:05)
-    if (PARA.model_no == 3) {
+    // 雨量計モード (Model 3) および 定時騒音振動モード (Model 4) の定時トリガー (10分周期) & NTP同期 (毎日 03:05)
+    if (PARA.model_no == 3 || PARA.model_no == 4) {
       time(&CUR_TIME);
       struct tm *tm = localtime(&CUR_TIME);
       CUR_MIN = tm->tm_min;
@@ -2116,7 +2152,7 @@ void loop() {
 
       // 10分毎に測定データ送信トリガー
       if ((CUR_MIN % 10) == 0 && (PRE_MIN % 10) != 0) {
-        Serial.println("Triggering rain 10-min measurement...");
+        Serial.println("Triggering 10-min periodic measurement...");
         meas_trigger_rain();
       }
 
