@@ -81,7 +81,8 @@ para_d PARA;
 trans_para T_PARA[4];
 
 // 通信・Web関連変数
-const char *pubTopic = "pub_prod"; // デフォルト製品版 ("pub01" はクラウドデバッグ用)
+const char *pubTopic =
+    "pub_prod"; // デフォルト製品版 ("pub01" はクラウドデバッグ用)
 const char ntp_server[][30] = {"ntp.nict.jp", "pool.ntp.org",
                                "ntp.jst.mfeed.ad.jp"};
 long CUR_TIME;
@@ -160,50 +161,135 @@ const char *str_calibration = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>キャリブレーション - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 680px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 13px; font-weight: 700; color: #475569; margin-bottom: 14px;
+        letter-spacing: 0.5px;
+      }
+      table {
+        width: 100%; border-collapse: collapse; margin-bottom: 6px;
+      }
+      th {
+        padding: 10px 8px; background-color: #f8fafc; color: #475569;
+        font-size: 12px; font-weight: 700; border-bottom: 2px solid #e2e8f0; text-align: center;
+      }
+      td {
+        padding: 12px 8px; border-bottom: 1px solid #f1f5f9; text-align: center;
+        font-size: 14px; color: #334155;
+      }
+      .ch-cell { font-weight: 700; color: #4f46e5; }
+      .value {
+        font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-weight: 700; color: #0284c7; font-size: 15px;
+      }
+      .form-grid {
+        display: grid; grid-template-columns: 1fr 1fr 1.5fr auto; gap: 10px; align-items: center;
+      }
+      @media (max-width: 500px) {
+        .form-grid { grid-template-columns: 1fr 1fr; }
+        .form-grid .full-span { grid-column: span 2; }
+      }
+      select, input[type=text] {
+        width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px;
+        font-size: 14px; color: #1e293b; background: #ffffff; box-sizing: border-box;
+      }
+      select:focus, input[type=text]:focus {
+        outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+      }
+      .btn-set {
+        padding: 10px 20px; border: none; border-radius: 8px;
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: #ffffff; font-size: 14px; font-weight: 700; cursor: pointer;
+        transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+      }
+      .btn-set:hover {
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+        transform: translateY(-1px);
+      }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center;
+      }
+      .btn-secondary {
+        background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-secondary:hover {
+        background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px);
+      }
     </style>
   </head>
   <body>
-    <h1>Calibration</h1>
-    <p style='color:brown; font-weight: bold'>CONVERTED DATA / PARAMETER(LARGE/SMALL)</p>
-    <p><table>
-      <tr><th>CHANNEL</th><th>DATA</th><th>LARGE</th><th>SMALL</th></tr>
-      <tr><td>CH1</td><td><span id="val_ch1" class="value"></span></td><td><span id="pl_ch1" class="value"></span></td><td><span id="ps_ch1" class="value"></span></td></tr>
-      <tr><td>CH2</td><td><span id="val_ch2" class="value"></span></td><td><span id="pl_ch2" class="value"></span></td><td><span id="ps_ch2" class="value"></span></td></tr>
-      <tr><td>CH3</td><td><span id="val_ch3" class="value"></span></td><td><span id="pl_ch3" class="value"></span></td><td><span id="ps_ch3" class="value"></span></td></tr>
-      <tr><td>CH4</td><td><span id="val_ch4" class="value"></span></td><td><span id="pl_ch4" class="value"></span></td><td><span id="ps_ch4" class="value"></span></td></tr>
-    </table></p>
-    <p style='color:brown; font-weight: bold'>Scaling Parameter Set</p>
-    <form name='paremeter_set'>
-      <p><table>
-        <tr><th style='width: 30px'>CH</th><th>LARGE/SMALL</th><th>PARAMETER</th><th style='border-top-style:none'></th></tr>
-        <tr><td style='width: 30px'>
-          <select name="channel_number">
-          <option value="1">CH1</option>
-          <option value="2">CH2</option>
-          <option value="3">CH3</option>
-          <option value="4">CH4</option>
-          </select>
-        </td>
-        <td style='width: 30px'>
-          <select name="large_small">
-          <option value="0">LARGE</option>
-          <option value="1">SMALL</option>
-          </select>
-        </td>
-        <td><input type='text' name='conv_param'></td><td><button type='submit' name='param_submit' id='button1' value='send' style='background-color:#AFA;'>Set</button></td></tr>
-      </table></p>
-    </form>
-    <br>
-    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+    <div class="container">
+      <div class="main-title">キャリブレーション</div>
+
+      <div class="card">
+        <div class="card-title">測定データ &amp; パラメータ (LARGE / SMALL)</div>
+        <table>
+          <thead>
+            <tr><th>CH</th><th>測定データ</th><th>LARGE</th><th>SMALL</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="ch-cell">CH1</td><td><span id="val_ch1" class="value">-</span></td><td><span id="pl_ch1" class="value">-</span></td><td><span id="ps_ch1" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH2</td><td><span id="val_ch2" class="value">-</span></td><td><span id="pl_ch2" class="value">-</span></td><td><span id="ps_ch2" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH3</td><td><span id="val_ch3" class="value">-</span></td><td><span id="pl_ch3" class="value">-</span></td><td><span id="ps_ch3" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH4</td><td><span id="val_ch4" class="value">-</span></td><td><span id="pl_ch4" class="value">-</span></td><td><span id="ps_ch4" class="value">-</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">スケーリング パラメータ設定</div>
+        <form name="paremeter_set" action="/param_set/" method="GET">
+          <div class="form-grid">
+            <div>
+              <select name="channel_number">
+                <option value="1">CH1</option>
+                <option value="2">CH2</option>
+                <option value="3">CH3</option>
+                <option value="4">CH4</option>
+              </select>
+            </div>
+            <div>
+              <select name="large_small">
+                <option value="0">LARGE</option>
+                <option value="1">SMALL</option>
+              </select>
+            </div>
+            <div class="full-span">
+              <input type="text" name="conv_param" placeholder="設定値入力">
+            </div>
+            <div class="full-span">
+              <button type="submit" name="param_submit" value="send" class="btn-set">Set</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="nav-group">
+        <a href="/" class="btn btn-secondary">Home</a>
+      </div>
+    </div>
   </body>
   <script>
     var disp_trans_param = function () {
@@ -232,18 +318,25 @@ const char *str_calibration = R"rawliteral(
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function() {
         if (this.readyState == 4 && this.status == 200) {
-            let cmd = this.responseText.split(',');
-            let elements = document.getElementsByName('channel_number');
+          let cmd = this.responseText.split(',');
+          let elements = document.getElementsByName('channel_number');
+          if (elements.length > 0 && Number(cmd[0]) >= 1) {
             elements[0].options[Number(cmd[0])-1].selected = true;
-            elements = document.getElementsByName('large_small');
+          }
+          elements = document.getElementsByName('large_small');
+          if (elements.length > 0 && Number(cmd[1]) >= 0) {
             elements[0].options[Number(cmd[1])].selected = true;
           }
+        }
       };
       xhr.open("GET", "/ch_ls_param", true);
       xhr.send(null);
     }
     setInterval(disp_trans_param, 1000);
-    window.onload = ch_ls_param;
+    window.onload = function() {
+      disp_trans_param();
+      ch_ls_param();
+    };
   </script>
 </html>)rawliteral";
 
@@ -253,38 +346,100 @@ const char *str_mac_set = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MAC Address 設定 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
-      input[type=text] { font-size: 16px; padding: 6px; }
-      button { font-size: 16px; padding: 8px 24px; cursor: pointer; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 14px; font-weight: 700; color: #475569; margin-bottom: 12px;
+      }
+      .info-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px;
+      }
+      .info-label { font-weight: 600; color: #64748b; }
+      .info-value { font-family: monospace; font-weight: 700; color: #0284c7; font-size: 15px; }
+      .radio-group { margin: 16px 0; display: flex; flex-direction: column; gap: 10px; }
+      .radio-label {
+        display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+        font-size: 14px; font-weight: 600; color: #334155; cursor: pointer;
+      }
+      input[type=text] {
+        width: 100%; padding: 12px 14px; border: 1.5px solid #cbd5e1; border-radius: 10px;
+        font-size: 15px; color: #1e293b; background: #ffffff; box-sizing: border-box; margin: 8px 0 16px 0;
+      }
+      input[type=text]:focus {
+        outline: none; border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+      }
+      .btn-submit {
+        width: 100%; padding: 14px 20px; border: none; border-radius: 12px;
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; font-size: 16px; font-weight: 700; cursor: pointer;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: all 0.2s ease;
+      }
+      .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
+      .btn-factory-home {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>MAC Address Setting</h1>
-    <p><table>
-      <tr><th>Current CLIENT_ID</th><th>ESP32 Hardware MAC</th></tr>
-      <tr><td><span id="current_client_id" class="value"></span></td><td><span id="hw_mac" class="value"></span></td></tr>
-    </table></p>
-    <form action='/mac_set/' method='GET'>
-      <p style='margin: 15px 0; font-size: 16px;'>
-        <label><input type="radio" name="use_custom_mac" value="0" id="mac_opt_hw"> ESP32 MACアドレスを使用 (Auto)</label><br><br>
-        <label><input type="radio" name="use_custom_mac" value="1" id="mac_opt_custom"> 指定したMACアドレスを使用 (Custom)</label>
-      </p>
-      <p>
-        <label>Custom MAC: </label>
-        <input type='text' name='custom_mac' id='custom_mac_input' value='' placeholder='e.g. 24-0a-c4-xx-xx-xx'>
-      </p>
-      <button type='submit' name='mac_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br><br>
-    <a href='/f1c9t' style='color:navy; font-size:20px;'>Factory Home</a>
+    <div class="container">
+      <div class="main-title">MAC Address 設定</div>
+
+      <div class="card">
+        <div class="card-title">現在のステータス</div>
+        <div class="info-row">
+          <span class="info-label">現在の CLIENT_ID:</span>
+          <span id="current_client_id" class="info-value">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">ESP32 内蔵 MAC:</span>
+          <span id="hw_mac" class="info-value">-</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">MAC Address 選択・指定</div>
+        <form action='/mac_set/' method='GET'>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="use_custom_mac" value="0" id="mac_opt_hw">
+              ESP32 MACアドレスを使用 (Auto)
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="use_custom_mac" value="1" id="mac_opt_custom">
+              指定したMACアドレスを使用 (Custom)
+            </label>
+          </div>
+          <label style="font-size: 13px; font-weight: 700; color: #475569;">カスタム MAC アドレス:</label>
+          <input type='text' name='custom_mac' id='custom_mac_input' placeholder='例: 24-0a-c4-xx-xx-xx'>
+          <button type='submit' name='mac_submit' value='send' class="btn-submit">設定を保存 (Set)</button>
+        </form>
+      </div>
+
+      <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+    </div>
   </body>
   <script>
     var disp_mac_param = function () {
@@ -315,39 +470,100 @@ const char *str_topic_set = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Publish Topic 設定 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
-      input[type=text] { font-size: 16px; padding: 6px; }
-      button { font-size: 16px; padding: 8px 24px; cursor: pointer; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 14px; font-weight: 700; color: #475569; margin-bottom: 12px;
+      }
+      .info-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 0; font-size: 14px;
+      }
+      .info-label { font-weight: 600; color: #64748b; }
+      .info-value { font-family: monospace; font-weight: 700; color: #0284c7; font-size: 16px; }
+      .radio-group { margin: 16px 0; display: flex; flex-direction: column; gap: 10px; }
+      .radio-label {
+        display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+        font-size: 14px; font-weight: 600; color: #334155; cursor: pointer;
+      }
+      input[type=text] {
+        width: 100%; padding: 12px 14px; border: 1.5px solid #cbd5e1; border-radius: 10px;
+        font-size: 15px; color: #1e293b; background: #ffffff; box-sizing: border-box; margin: 8px 0 16px 0;
+      }
+      input[type=text]:focus {
+        outline: none; border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+      }
+      .btn-submit {
+        width: 100%; padding: 14px 20px; border: none; border-radius: 12px;
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; font-size: 16px; font-weight: 700; cursor: pointer;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: all 0.2s ease;
+      }
+      .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
+      .btn-factory-home {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>Publish Topic Setting</h1>
-    <p><table>
-      <tr><th>Current Publish Topic</th></tr>
-      <tr><td><span id="current_topic" class="value"></span></td></tr>
-    </table></p>
-    <form action='/topic_set/' method='GET'>
-      <p style='margin: 15px 0; font-size: 16px; text-align: left; display: inline-block;'>
-        <label><input type="radio" name="topic_preset" value="pub_prod" id="topic_opt_prod" onclick="document.getElementById('custom_topic_input').value='pub_prod'"> 製品版 (pub_prod) [デフォルト]</label><br><br>
-        <label><input type="radio" name="topic_preset" value="pub01" id="topic_opt_debug" onclick="document.getElementById('custom_topic_input').value='pub01'"> クラウドデバッグ用 (pub01)</label><br><br>
-        <label><input type="radio" name="topic_preset" value="custom" id="topic_opt_custom"> カスタム指定</label>
-      </p>
-      <p>
-        <label>Topic: </label>
-        <input type='text' name='pub_topic' id='custom_topic_input' value='' placeholder='e.g. pub_prod'>
-      </p>
-      <button type='submit' name='topic_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br><br>
-    <a href='/f1c9t' style='color:navy; font-size:20px;'>Factory Home</a>
+    <div class="container">
+      <div class="main-title">Publish Topic 設定</div>
+
+      <div class="card">
+        <div class="card-title">現在のステータス</div>
+        <div class="info-row">
+          <span class="info-label">現在の Publish Topic:</span>
+          <span id="current_topic" class="info-value">-</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Topic 選択・指定</div>
+        <form action='/topic_set/' method='GET'>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="topic_preset" value="pub_prod" id="topic_opt_prod" onclick="document.getElementById('custom_topic_input').value='pub_prod'">
+              製品版 (pub_prod) [デフォルト]
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="topic_preset" value="pub01" id="topic_opt_debug" onclick="document.getElementById('custom_topic_input').value='pub01'">
+              クラウドデバッグ用 (pub01)
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="topic_preset" value="custom" id="topic_opt_custom">
+              カスタム指定
+            </label>
+          </div>
+          <label style="font-size: 13px; font-weight: 700; color: #475569;">Topic 名:</label>
+          <input type='text' name='pub_topic' id='custom_topic_input' placeholder='例: pub_prod'>
+          <button type='submit' name='topic_submit' value='send' class="btn-submit">設定を保存 (Set)</button>
+        </form>
+      </div>
+
+      <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+    </div>
   </body>
   <script>
     var disp_topic_param = function () {
@@ -379,38 +595,120 @@ const char *str_factory = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>工場設定 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 14px; font-weight: 700; color: #475569; margin-bottom: 12px;
+      }
+      select {
+        width: 100%; padding: 12px 14px; border: 1.5px solid #cbd5e1; border-radius: 10px;
+        font-size: 15px; color: #1e293b; background: #ffffff; box-sizing: border-box;
+        margin-bottom: 14px;
+      }
+      select:focus {
+        outline: none; border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+      }
+      .btn-set {
+        width: 100%; padding: 14px 20px; border: none; border-radius: 12px;
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; font-size: 16px; font-weight: 700; cursor: pointer;
+        transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+      }
+      .btn-set:hover {
+        transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35);
+      }
+      .menu-grid {
+        display: flex; flex-direction: column; gap: 10px;
+      }
+      .menu-item {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 18px; background: #ffffff; border: 1.5px solid #cbd5e1;
+        border-radius: 12px; text-decoration: none; font-size: 15px; font-weight: 700;
+        color: #334155; box-shadow: 0 2px 4px rgba(0,0,0,0.03); transition: all 0.2s ease;
+      }
+      .menu-item:hover {
+        background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px);
+        color: #0f172a;
+      }
+      .menu-arrow { color: #94a3b8; font-size: 16px; }
+      .btn-home {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04); margin-top: 10px;
+      }
+      .btn-home:hover {
+        background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px);
+      }
     </style>
   </head>
   <body>
-    <h1>Factory</h1>
-    <form>
-      <label for="model_no">Select Model</label>
-      <select name="model_no">
-        <option value="0">NOISE/VIBRATION</option>
-        <option value="1">Normal 4ch cloud</option>
-        <option value="2">Normal 4ch local</option>
-        <option value="3">RAIN</option>
-        <option value="4">NOISE/VIBRATION(Every 10 minutes on the clock)</option>
-      </select>
-      <button type='submit' name='factory_param_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br><br><br><br>
-    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
-    <a href='/topic_set/' style='color:navy; font-size:20px;'>Publish Topic Setting</a><br><br>
-    <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period</a><br><br>
-    <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a><br><br>
-    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
-    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+    <div class="container">
+      <div class="main-title">工場設定</div>
+
+      <div class="card">
+        <div class="card-title">動作モデル選択</div>
+        <form>
+          <select name="model_no">
+            <option value="0">騒音・振動</option>
+            <option value="1">4CH 標準 クラウド送信</option>
+            <option value="2">4CH 標準 ローカル送信</option>
+            <option value="3">雨量</option>
+            <option value="4">騒音・振動 (正時基準10分周期)</option>
+          </select>
+          <button type='submit' name='factory_param_submit' value='send' class="btn-set">モデル設定</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-title">各種設定メニュー</div>
+        <div class="menu-grid">
+          <a href='/mac_set/' class="menu-item">
+            <span>🏷️ MAC Address 設定</span>
+            <span class="menu-arrow">›</span>
+          </a>
+          <a href='/topic_set/' class="menu-item">
+            <span>📡 Publish Topic 設定</span>
+            <span class="menu-arrow">›</span>
+          </a>
+          <a href='/meas_period_set/' class="menu-item">
+            <span>⏱️ 測定周期 設定</span>
+            <span class="menu-arrow">›</span>
+          </a>
+          <a href='/ave_normal_set/' class="menu-item">
+            <span>📈 平均 / 瞬時値 設定</span>
+            <span class="menu-arrow">›</span>
+          </a>
+          <a href='/wifi_set/' class="menu-item">
+            <span>📶 WiFi 設定</span>
+            <span class="menu-arrow">›</span>
+          </a>
+          <a href='/param_set/' class="menu-item">
+            <span>⚙️ キャリブレーション</span>
+            <span class="menu-arrow">›</span>
+          </a>
+        </div>
+      </div>
+
+      <a href='/' class="btn-home">通常画面へ戻る (Home)</a>
+    </div>
   </body>
   <script>
     var factory_param = function () {
@@ -419,9 +717,11 @@ const char *str_factory = R"rawliteral(
         if (this.readyState == 4 && this.status == 200) {
           let no = this.responseText;
           let elements = document.getElementsByName('model_no');
-          elements[0].options[Number(no)].selected = true;
+          if (elements.length > 0 && elements[0].options.length > Number(no)) {
+            elements[0].options[Number(no)].selected = true;
+          }
         }
-      }
+      };
       xhr.open("GET", "/disp_factory_param", true);
       xhr.send(null);
     }
@@ -435,23 +735,104 @@ const char *str_rex_noise_shake = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>騒音・振動 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #102a43; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #0f172a; margin: 8px 0 20px 0;
+      }
+      .info-card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .info-title {
+        font-size: 13px; font-weight: bold; color: #64748b; margin-bottom: 14px;
+      }
+      .ch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .ch-item {
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+        padding: 16px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); text-align: center;
+      }
+      .ch-badge { font-size: 12px; font-weight: bold; color: #0284c7; margin-bottom: 6px; }
+      .ch-name { font-size: 16px; font-weight: 600; color: #334155; }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+      }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
+      .btn-secondary {
+        background: #ffffff; color: #334155; border: 1px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+      }
+      .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>ch1:noise ch2:vibration</h1>
-    <h1>ch3:average ch4:average</h1>
-    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
+    <div class="container">
+      <div class="main-title">騒音・振動 測定</div>
+
+      <div class="info-card">
+        <div class="info-title">チャンネル構成</div>
+        <div class="ch-grid">
+          <div class="ch-item">
+            <div class="ch-badge">CH 1</div>
+            <div class="ch-name">騒音</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 2</div>
+            <div class="ch-name">振動</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 3</div>
+            <div class="ch-name" id="mode_ch3">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 4</div>
+            <div class="ch-name" id="mode_ch4">平均</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+      </div>
+    </div>
   </body>
+  <script>
+    var disp_ave_normal = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let cmd = this.responseText.split(',');
+          for (let i = 2; i <= 3; i++) {
+            let el = document.getElementById("mode_ch" + (i + 1));
+            if (el) {
+              el.innerText = (cmd[i] === "1") ? "瞬時値" : "平均";
+            }
+          }
+        }
+      };
+      xhr.open("GET", "/disp_ave_normal", true);
+      xhr.send(null);
+    }
+    window.onload = disp_ave_normal;
+  </script>
 </html>)rawliteral";
 
 const char *str_rex_noise_shake_10min = R"rawliteral(
@@ -460,23 +841,104 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>正時基準10分周期 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 4px 0;
+      }
+      .sub-title {
+        font-size: 17px; font-weight: 600; color: #4338ca; margin: 0 0 20px 0;
+      }
+      .info-card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .info-title {
+        font-size: 13px; font-weight: 700; color: #475569; margin-bottom: 14px;
+      }
+      .ch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .ch-item {
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+        padding: 16px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); text-align: center;
+      }
+      .ch-badge {
+        font-size: 12px; font-weight: 800; color: #4f46e5; margin-bottom: 6px;
+      }
+      .ch-name { font-size: 16px; font-weight: 700; color: #1e293b; }
+      .period-banner {
+        margin-top: 16px; padding: 14px;
+        background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px;
+        font-size: 14px; font-weight: 600; color: #065f46;
+        text-align: center;
+      }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+        color: #ffffff; box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
+      }
+      .btn-primary:hover {
+        background: linear-gradient(135deg, #4338ca 0%, #312e81 100%);
+        transform: translateY(-2px);
+      }
+      .btn-secondary {
+        background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-secondary:hover {
+        background: #f8fafc; border-color: #94a3b8; transform: translateY(-2px);
+      }
     </style>
   </head>
   <body>
-    <h1>正時基準10分周期</h1>
-    <h1>ch1:noise ch2:vibration</h1>
-    <h1>ch3:average ch4:average</h1>
-    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
+    <div class="container">
+      <div class="main-title">騒音・振動測定</div>
+      <div class="sub-title">正時基準 10分周期</div>
+
+      <div class="info-card">
+        <div class="info-title">チャンネル構成</div>
+        <div class="ch-grid">
+          <div class="ch-item">
+            <div class="ch-badge">CH 1</div>
+            <div class="ch-name">騒音</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 2</div>
+            <div class="ch-name">振動</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 3</div>
+            <div class="ch-name">10分平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 4</div>
+            <div class="ch-name">10分平均</div>
+          </div>
+        </div>
+        <div class="period-banner">
+          <span>⏱️ 送信時間: 毎時 00, 10, 20, 30, 40, 50分</span>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+      </div>
+    </div>
   </body>
 </html>)rawliteral";
 
@@ -486,23 +948,105 @@ const char *str_rex_rain = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>雨量 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #0f172a; margin: 8px 0 20px 0;
+      }
+      .info-card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .info-title {
+        font-size: 13px; font-weight: bold; color: #64748b; margin-bottom: 14px;
+      }
+      .ch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .ch-item {
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+        padding: 16px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); text-align: center;
+      }
+      .ch-badge { font-size: 12px; font-weight: bold; color: #16a34a; margin-bottom: 6px; }
+      .ch-name { font-size: 16px; font-weight: 600; color: #334155; }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+        color: #ffffff; box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
+      }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(22, 163, 74, 0.35); }
+      .btn-secondary {
+        background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+      }
+      .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>ch1:rain ch2-4:average</h1>
-    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
-    <a href='/shreshold_set/' style='color:navy; font-size:20px;'>Shreshold</a>
+    <div class="container">
+      <div class="main-title">雨量 測定</div>
+
+      <div class="info-card">
+        <div class="info-title">チャンネル構成</div>
+        <div class="ch-grid">
+          <div class="ch-item">
+            <div class="ch-badge">CH 1</div>
+            <div class="ch-name">雨量</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 2</div>
+            <div class="ch-name" id="mode_ch2">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 3</div>
+            <div class="ch-name" id="mode_ch3">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 4</div>
+            <div class="ch-name" id="mode_ch4">平均</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+        <a href="/shreshold_set/" class="btn btn-secondary">📊 閾値 (Shreshold) 設定</a>
+      </div>
+    </div>
   </body>
+  <script>
+    var disp_ave_normal = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let cmd = this.responseText.split(',');
+          for (let i = 1; i <= 3; i++) {
+            let el = document.getElementById("mode_ch" + (i + 1));
+            if (el) {
+              el.innerText = (cmd[i] === "1") ? "瞬時値" : "平均";
+            }
+          }
+        }
+      };
+      xhr.open("GET", "/disp_ave_normal", true);
+      xhr.send(null);
+    }
+    window.onload = disp_ave_normal;
+  </script>
 </html>)rawliteral";
 
 const char *str_normal_4ch_cloud = R"rawliteral(
@@ -511,23 +1055,105 @@ const char *str_normal_4ch_cloud = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>4CH クラウド - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #0f172a; margin: 8px 0 20px 0;
+      }
+      .info-card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .info-title {
+        font-size: 13px; font-weight: bold; color: #64748b; margin-bottom: 14px;
+      }
+      .ch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .ch-item {
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+        padding: 16px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); text-align: center;
+      }
+      .ch-badge { font-size: 12px; font-weight: bold; color: #0284c7; margin-bottom: 6px; }
+      .ch-name { font-size: 16px; font-weight: 600; color: #334155; }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+      }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
+      .btn-secondary {
+        background: #ffffff; color: #334155; border: 1px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+      }
+      .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>4CH NORMAL CLOUD</h1>
-    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
-    <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
+    <div class="container">
+      <div class="main-title">4CH 標準 クラウド送信</div>
+
+      <div class="info-card">
+        <div class="info-title">チャンネル構成</div>
+        <div class="ch-grid">
+          <div class="ch-item">
+            <div class="ch-badge">CH 1</div>
+            <div class="ch-name" id="mode_ch1">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 2</div>
+            <div class="ch-name" id="mode_ch2">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 3</div>
+            <div class="ch-name" id="mode_ch3">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 4</div>
+            <div class="ch-name" id="mode_ch4">平均</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+        <a href="/ave_normal_set/" class="btn btn-secondary">📈 平均 / 瞬時値 設定</a>
+      </div>
+    </div>
   </body>
+  <script>
+    var disp_ave_normal = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let cmd = this.responseText.split(',');
+          for (let i = 0; i < 4; i++) {
+            let el = document.getElementById("mode_ch" + (i + 1));
+            if (el) {
+              el.innerText = (cmd[i] === "1") ? "瞬時値" : "平均";
+            }
+          }
+        }
+      };
+      xhr.open("GET", "/disp_ave_normal", true);
+      xhr.send(null);
+    }
+    window.onload = disp_ave_normal;
+  </script>
 </html>)rawliteral";
 
 const char *str_normal_4ch_local = R"rawliteral(
@@ -536,24 +1162,106 @@ const char *str_normal_4ch_local = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>4CH ローカル - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #0f172a; margin: 8px 0 20px 0;
+      }
+      .info-card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .info-title {
+        font-size: 13px; font-weight: bold; color: #64748b; margin-bottom: 14px;
+      }
+      .ch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .ch-item {
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+        padding: 16px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); text-align: center;
+      }
+      .ch-badge { font-size: 12px; font-weight: bold; color: #475569; margin-bottom: 6px; }
+      .ch-name { font-size: 16px; font-weight: 600; color: #334155; }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #475569 0%, #334155 100%);
+        color: #ffffff; box-shadow: 0 4px 12px rgba(71, 85, 105, 0.25);
+      }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(71, 85, 105, 0.35); }
+      .btn-secondary {
+        background: #ffffff; color: #334155; border: 1px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+      }
+      .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>4CH NORMAL LOCAL</h1>
-    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
-    <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period Setting</a><br><br>
-    <a href='/host_ip_set/' style='color:navy; font-size:20px;'>Server IP</a>
+    <div class="container">
+      <div class="main-title">4CH 標準 ローカル送信</div>
+
+      <div class="info-card">
+        <div class="info-title">チャンネル構成</div>
+        <div class="ch-grid">
+          <div class="ch-item">
+            <div class="ch-badge">CH 1</div>
+            <div class="ch-name" id="mode_ch1">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 2</div>
+            <div class="ch-name" id="mode_ch2">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 3</div>
+            <div class="ch-name" id="mode_ch3">平均</div>
+          </div>
+          <div class="ch-item">
+            <div class="ch-badge">CH 4</div>
+            <div class="ch-name" id="mode_ch4">平均</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+        <a href="/meas_period_set/" class="btn btn-secondary">⏱️ 測定周期 設定</a>
+        <a href="/host_ip_set/" class="btn btn-secondary">🌐 サーバ IP 設定</a>
+      </div>
+    </div>
   </body>
+  <script>
+    var disp_ave_normal = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let cmd = this.responseText.split(',');
+          for (let i = 0; i < 4; i++) {
+            let el = document.getElementById("mode_ch" + (i + 1));
+            if (el) {
+              el.innerText = (cmd[i] === "1") ? "瞬時値" : "平均";
+            }
+          }
+        }
+      };
+      xhr.open("GET", "/disp_ave_normal", true);
+      xhr.send(null);
+    }
+    window.onload = disp_ave_normal;
+  </script>
 </html>)rawliteral";
 
 const char *str_host_ip = R"rawliteral(
@@ -607,30 +1315,79 @@ const char *str_meas_period = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>測定周期 設定 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 14px; font-weight: 700; color: #475569; margin-bottom: 12px;
+      }
+      .info-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 0; font-size: 14px;
+      }
+      .info-label { font-weight: 600; color: #64748b; }
+      .info-value { font-family: monospace; font-weight: 700; color: #0284c7; font-size: 18px; }
+      input[type=text] {
+        width: 100%; padding: 12px 14px; border: 1.5px solid #cbd5e1; border-radius: 10px;
+        font-size: 15px; color: #1e293b; background: #ffffff; box-sizing: border-box; margin: 8px 0 16px 0;
+      }
+      input[type=text]:focus {
+        outline: none; border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+      }
+      .btn-submit {
+        width: 100%; padding: 14px 20px; border: none; border-radius: 12px;
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; font-size: 16px; font-weight: 700; cursor: pointer;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: all 0.2s ease;
+      }
+      .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
+      .btn-factory-home {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>Measurement Period Setting</h1>
-    <form>
-      <p><table>
-        <tr><th>Measurement Period(sec)</th></tr>
-        <tr><td><span id="meas_period_val" class="value"></span></td></tr>
-      </table></p>
-      <label>input:</label><input type='text' name='meas_period_param' value=""><label>(60 - 3600)</label>
-      <br><br>
-      <button type='submit' name='meas_period_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br>
-    <a href='/f1c9t' style='color:navy; font-size:20px;'>Factory Home</a>
+    <div class="container">
+      <div class="main-title">測定周期 設定</div>
+
+      <div class="card">
+        <div class="card-title">現在のステータス</div>
+        <div class="info-row">
+          <span class="info-label">現在の測定周期:</span>
+          <span><span id="meas_period_val" class="info-value">-</span> 秒</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">周期の変更 (60 〜 3600 秒)</div>
+        <form>
+          <input type='text' name='meas_period_param' placeholder='設定秒数を入力 (例: 600)'>
+          <button type='submit' name='meas_period_submit' value='send' class="btn-submit">設定を保存</button>
+        </form>
+      </div>
+
+      <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+    </div>
   </body>
   <script>
     var disp_meas_period = function () {
@@ -654,30 +1411,79 @@ const char *str_shreshold = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>閾値設定 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 14px; font-weight: 700; color: #475569; margin-bottom: 12px;
+      }
+      .info-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 0; font-size: 14px;
+      }
+      .info-label { font-weight: 600; color: #64748b; }
+      .info-value { font-family: monospace; font-weight: 700; color: #0284c7; font-size: 18px; }
+      input[type=text] {
+        width: 100%; padding: 12px 14px; border: 1.5px solid #cbd5e1; border-radius: 10px;
+        font-size: 15px; color: #1e293b; background: #ffffff; box-sizing: border-box; margin: 8px 0 16px 0;
+      }
+      input[type=text]:focus {
+        outline: none; border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+      }
+      .btn-submit {
+        width: 100%; padding: 14px 20px; border: none; border-radius: 12px;
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; font-size: 16px; font-weight: 700; cursor: pointer;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: all 0.2s ease;
+      }
+      .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
+      .btn-home {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>Shreshold Setting</h1>
-    <form>
-      <p><table>
-        <tr><th>Shreshold</th></tr>
-        <tr><td><span id="shreshold_val" class="value"></span></td></tr>
-      </table></p>
-      <label>input:</label><input type='text' name='shreshold_param' value=""><label>(0 - 9999.9)</label>
-      <br><br>
-      <button type='submit' name='shreshold_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br>
-    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+    <div class="container">
+      <div class="main-title">閾値 (Shreshold) 設定</div>
+
+      <div class="card">
+        <div class="card-title">現在のステータス</div>
+        <div class="info-row">
+          <span class="info-label">現在の閾値:</span>
+          <span id="shreshold_val" class="info-value">-</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">閾値の変更 (0 〜 9999.9)</div>
+        <form>
+          <input type='text' name='shreshold_param' placeholder='設定値を入力'>
+          <button type='submit' name='shreshold_submit' value='send' class="btn-submit">設定を保存</button>
+        </form>
+      </div>
+
+      <a href='/' class="btn-home">Home</a>
+    </div>
   </body>
   <script>
     var disp_shreshold = function () {
@@ -701,32 +1507,96 @@ const char *str_ave_normal = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>平均 / 瞬時値 設定 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 14px; font-weight: 700; color: #475569; margin-bottom: 16px;
+      }
+      .ch-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 12px 0; border-bottom: 1px solid #f1f5f9;
+      }
+      .ch-label { font-weight: 700; color: #334155; font-size: 15px; }
+      .radio-options { display: flex; gap: 16px; }
+      .radio-opt {
+        display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600;
+        color: #475569; cursor: pointer;
+      }
+      .btn-submit {
+        width: 100%; padding: 14px 20px; border: none; border-radius: 12px;
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; font-size: 16px; font-weight: 700; cursor: pointer;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: all 0.2s ease;
+        margin-top: 16px;
+      }
+      .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
+      .btn-factory-home {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>Average / Normal Setting</h1>
-    <p style='color:brown; font-weight: bold'>Measurement Period</p>
-    <form>
-      <p><table>
-        <tr><th>CH</th><th>AVERAGE / NORMAL</th></tr>
-        <tr><td>1</td><td><input type="radio" name="average_normal0" value="0">Average<input type="radio" name="average_normal0" value="1">Normal</td></tr>
-        <tr><td>2</td><td><input type="radio" name="average_normal1" value="0">Average<input type="radio" name="average_normal1" value="1">Normal</td></tr>
-        <tr><td>3</td><td><input type="radio" name="average_normal2" value="0">Average<input type="radio" name="average_normal2" value="1">Normal</td></tr>
-        <tr><td>4</td><td><input type="radio" name="average_normal3" value="0">Average<input type="radio" name="average_normal3" value="1">Normal</td></tr>
-      </table></p>
-      <button type='submit' name='ave_normal_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br>
-    <a href='/f1c9t' style='color:navy; font-size:20px;'>Factory Home</a>
+    <div class="container">
+      <div class="main-title">平均 / 瞬時値 設定</div>
+
+      <div class="card">
+        <div class="card-title">チャンネル別 演算モード選択</div>
+        <form>
+          <div class="ch-row">
+            <span class="ch-label">CH1</span>
+            <div class="radio-options">
+              <label class="radio-opt"><input type="radio" name="average_normal0" value="0"> Average</label>
+              <label class="radio-opt"><input type="radio" name="average_normal0" value="1"> Normal</label>
+            </div>
+          </div>
+          <div class="ch-row">
+            <span class="ch-label">CH2</span>
+            <div class="radio-options">
+              <label class="radio-opt"><input type="radio" name="average_normal1" value="0"> Average</label>
+              <label class="radio-opt"><input type="radio" name="average_normal1" value="1"> Normal</label>
+            </div>
+          </div>
+          <div class="ch-row">
+            <span class="ch-label">CH3</span>
+            <div class="radio-options">
+              <label class="radio-opt"><input type="radio" name="average_normal2" value="0"> Average</label>
+              <label class="radio-opt"><input type="radio" name="average_normal2" value="1"> Normal</label>
+            </div>
+          </div>
+          <div class="ch-row">
+            <span class="ch-label">CH4</span>
+            <div class="radio-options">
+              <label class="radio-opt"><input type="radio" name="average_normal3" value="0"> Average</label>
+              <label class="radio-opt"><input type="radio" name="average_normal3" value="1"> Normal</label>
+            </div>
+          </div>
+          <button type='submit' name='ave_normal_submit' value='send' class="btn-submit">設定を保存</button>
+        </form>
+      </div>
+
+      <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+    </div>
   </body>
   <script>
     var disp_ave_normal = function () {
@@ -737,7 +1607,9 @@ const char *str_ave_normal = R"rawliteral(
           for(let i=0;i<4;i++){
             let stmp = "average_normal" + i;
             let elements = document.getElementsByName(stmp);
-            elements[Number(cmd[i])].checked = true;
+            if (elements.length > Number(cmd[i])) {
+              elements[Number(cmd[i])].checked = true;
+            }
           }
         }
       };
@@ -756,22 +1628,165 @@ String html_tag1 =
     "<!DOCTYPE HTML>\r\n<html>\r\n<head>\r\n"
     "<meta charset='utf-8'>\r\n"
     "<meta name='viewport' content='width=device-width, initial-scale=1'>\r\n"
+    "<title>WiFi 設定 - VST</title>\r\n"
     "<style>\r\n"
-    "  html { font-family: Helvetica, Arial, sans-serif; display: "
-    "inline-block; margin: 0px auto; text-align: center; }\r\n"
-    "  h1 { font-size: 24px; margin-bottom: 20px; }\r\n"
-    "  body { text-align: center; margin: 20px auto; max-width: 480px; }\r\n"
-    "  select, input[type=password], input[type=text] { font-size: 16px; "
-    "padding: 8px; margin: 6px 0; width: 90%; max-width: 320px; box-sizing: "
-    "border-box; }\r\n"
-    "  button { font-size: 16px; padding: 8px 24px; margin: 10px; border: 1px "
-    "solid #aaa; border-radius: 4px; cursor: pointer; }\r\n"
-    "  a { color: navy; text-decoration: none; font-size: 18px; }\r\n"
+    "  body {\r\n"
+    "    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
+    "Helvetica, Arial, sans-serif;\r\n"
+    "    background: #f1f5f9;\r\n"
+    "    margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;\r\n"
+    "    box-sizing: border-box; text-align: center;\r\n"
+    "  }\r\n"
+    "  .container {\r\n"
+    "    width: 100%; max-width: 600px; margin: 0 auto; box-sizing: "
+    "border-box;\r\n"
+    "  }\r\n"
+    "  .main-title {\r\n"
+    "    font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px "
+    "0;\r\n"
+    "  }\r\n"
+    "  .card {\r\n"
+    "    background: #ffffff; border: 1px solid #cbd5e1; border-radius: "
+    "16px;\r\n"
+    "    padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px "
+    "rgba(0,0,0,0.05);\r\n"
+    "    text-align: left; box-sizing: border-box;\r\n"
+    "  }\r\n"
+    "  .form-group { margin-bottom: 18px; }\r\n"
+    "  .label-row { display: flex; justify-content: space-between; "
+    "align-items: center; margin-bottom: 6px; }\r\n"
+    "  label { font-size: 14px; font-weight: 700; color: #334155; }\r\n"
+    "  .badge-count {\r\n"
+    "    font-size: 12px; font-weight: 700; color: #0284c7; background: "
+    "#e0f2fe;\r\n"
+    "    padding: 2px 8px; border-radius: 12px;\r\n"
+    "  }\r\n"
+    "  .select-wrapper, .pass-wrapper { display: flex; gap: 8px; align-items: "
+    "stretch; }\r\n"
+    "  select, input[type=password], input[type=text] {\r\n"
+    "    width: 100%; padding: 12px 14px; border: 1.5px solid #cbd5e1; "
+    "border-radius: 10px;\r\n"
+    "    font-size: 15px; color: #1e293b; background: #ffffff; box-sizing: "
+    "border-box;\r\n"
+    "  }\r\n"
+    "  select:focus, input[type=password]:focus, input[type=text]:focus {\r\n"
+    "    outline: none; border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2, "
+    "132, 199, 0.15);\r\n"
+    "  }\r\n"
+    "  .btn-rescan, .btn-toggle-pass {\r\n"
+    "    display: inline-flex; align-items: center; justify-content: "
+    "center; gap: 6px;\r\n"
+    "    padding: 0 14px; background: #f8fafc; border: 1.5px solid #cbd5e1;\r\n"
+    "    border-radius: 10px; font-size: 13px; font-weight: 600; color: "
+    "#475569;\r\n"
+    "    cursor: pointer; white-space: nowrap; transition: all 0.2s "
+    "ease;\r\n"
+    "  }\r\n"
+    "  .btn-rescan:hover, .btn-toggle-pass:hover { background: #f1f5f9; "
+    "border-color: #94a3b8; }\r\n"
+    "  .btn-rescan:disabled { opacity: 0.6; cursor: not-allowed; }\r\n"
+    "  .spin-icon { display: inline-block; }\r\n"
+    "  .spinning { animation: spin 0.8s linear infinite; }\r\n"
+    "  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: "
+    "rotate(360deg); } }\r\n"
+    "  .mini-loader {\r\n"
+    "    border: 2px solid #e2e8f0; border-top: 2px solid #0284c7;\r\n"
+    "    border-radius: 50%; width: 14px; height: 14px; animation: spin 0.8s "
+    "linear infinite;\r\n"
+    "    display: inline-block; vertical-align: middle; margin-right: 6px;\r\n"
+    "  }\r\n"
+    "  .rescan-status {\r\n"
+    "    font-size: 13px; font-weight: 600; color: #0284c7; margin-top: "
+    "6px;\r\n"
+    "    display: none; align-items: center; justify-content: flex-start;\r\n"
+    "  }\r\n"
+    "  .btn-submit {\r\n"
+    "    width: 100%; padding: 14px 20px; border: none; border-radius: "
+    "12px;\r\n"
+    "    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);\r\n"
+    "    color: #ffffff; font-size: 16px; font-weight: 700; cursor: "
+    "pointer;\r\n"
+    "    box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: all 0.2s "
+    "ease;\r\n"
+    "    margin-top: 10px;\r\n"
+    "  }\r\n"
+    "  .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 16px "
+    "rgba(2, 132, 199, 0.35); }\r\n"
+    "  .msg-box {\r\n"
+    "    padding: 12px 16px; border-radius: 10px; font-weight: 700; font-size: "
+    "14px;\r\n"
+    "    margin-top: 16px; text-align: center;\r\n"
+    "  }\r\n"
+    "  .nav-group { display: flex; flex-direction: column; gap: 12px; "
+    "margin-top: 10px; }\r\n"
+    "  .btn-home {\r\n"
+    "    display: block; text-decoration: none; padding: 14px 20px; "
+    "border-radius: 12px;\r\n"
+    "    font-size: 15px; font-weight: 700; transition: all 0.2s ease; "
+    "box-sizing: border-box;\r\n"
+    "    text-align: center; background: #ffffff; color: #334155; border: "
+    "1.5px solid #cbd5e1;\r\n"
+    "    box-shadow: 0 2px 4px rgba(0,0,0,0.04);\r\n"
+    "  }\r\n"
+    "  .btn-home:hover { background: #f8fafc; border-color: #94a3b8; "
+    "transform: translateY(-1px); }\r\n"
     "</style>\r\n"
     "</head>\r\n"
     "<body>\r\n"
-    "<h1>WiFi Setting</h1>\r\n";
-String html_tag2 = "\r\n</body>\r\n</html>\r\n\r\n";
+    "  <div class='container'>\r\n"
+    "    <div class='main-title'>WiFi 設定</div>\r\n";
+String html_tag2 =
+    "  </div>\r\n"
+    "  <script>\r\n"
+    "    function rescanWifi() {\r\n"
+    "      var btn = document.getElementById('btn_rescan');\r\n"
+    "      var icon = document.getElementById('spin_icon');\r\n"
+    "      var text = document.getElementById('rescan_text');\r\n"
+    "      var select = document.getElementById('ssid_select');\r\n"
+    "      var countEl = document.getElementById('net_count');\r\n"
+    "      if (btn.disabled) return;\r\n"
+    "      btn.disabled = true;\r\n"
+    "      icon.classList.add('spinning');\r\n"
+    "      text.innerText = '検索中...';\r\n"
+    "      var xhr = new XMLHttpRequest();\r\n"
+    "      xhr.onreadystatechange = function() {\r\n"
+    "        if (this.readyState == 4) {\r\n"
+    "          btn.disabled = false;\r\n"
+    "          icon.classList.remove('spinning');\r\n"
+    "          text.innerText = '再検索';\r\n"
+    "          if (this.status == 200) {\r\n"
+    "            try {\r\n"
+    "              var list = JSON.parse(this.responseText);\r\n"
+    "              var currentVal = select.value;\r\n"
+    "              select.innerHTML = '';\r\n"
+    "              for (var i = 0; i < list.length; i++) {\r\n"
+    "                var opt = document.createElement('option');\r\n"
+    "                opt.value = list[i].ssid;\r\n"
+    "                opt.text = list[i].disp;\r\n"
+    "                if (list[i].ssid === currentVal) opt.selected = true;\r\n"
+    "                select.appendChild(opt);\r\n"
+    "              }\r\n"
+    "              if (countEl) countEl.innerText = list.length;\r\n"
+    "            } catch(e) {}\r\n"
+    "          }\r\n"
+    "        }\r\n"
+    "      };\r\n"
+    "      xhr.open('GET', '/wifi_scan_list', true);\r\n"
+    "      xhr.send(null);\r\n"
+    "    }\r\n"
+    "    function togglePass() {\r\n"
+    "      var p = document.getElementById('pass1');\r\n"
+    "      var b = document.getElementById('btn_toggle_pass');\r\n"
+    "      if (p.type === 'password') {\r\n"
+    "        p.type = 'text';\r\n"
+    "        b.innerHTML = '🙈 隠す';\r\n"
+    "      } else {\r\n"
+    "        p.type = 'password';\r\n"
+    "        b.innerHTML = '👁️ 表示';\r\n"
+    "      }\r\n"
+    "    }\r\n"
+    "  </script>\r\n"
+    "</body>\r\n</html>\r\n\r\n";
 
 // -----------------------------------------------------------------------------
 // 関数プロトタイプ宣言
@@ -792,6 +1807,8 @@ void wifi_access_point(void);
 void wifi_scan(void);
 void check_async_wifi_scan(void);
 void wifi_rescan_proc(void);
+void wifi_scan_ajax_proc(void);
+void send_wifi_success_page(IPAddress ip);
 void favicon_response(void);
 String HTML_Select_Box_str(String Sel_Ssid);
 int split(String data, char delimiter, String *dst, int max);
@@ -1625,24 +2642,46 @@ void comm_publish_meas_data(float *sdata) {
 String HTML_Select_Box_str(String Sel_Ssid) {
   String str = "";
   String selected_str = "";
-  str += "<form name='F_ssid_select' action='/wifi_set/' method='GET'>\r\n";
-  str += "  <label for='ssid_select'><b>SSID:</b></label><br>\r\n";
-  str += "  <select name='ssid_select' id='ssid_select'>\r\n";
+  str += "<div class='card'>\r\n";
+  str += "  <form name='F_ssid_select' action='/wifi_set/' method='GET'>\r\n";
+  str += "    <div class='form-group'>\r\n";
+  str += "      <div class='label-row'>\r\n";
+  str +=
+      "        <label for='ssid_select'>SSID (接続先ネットワーク)</label>\r\n";
+  str += "        <span class='badge-count'>WiFi検出数: <span id='net_count'>" +
+         String(ssid_num) + "</span></span>\r\n";
+  str += "      </div>\r\n";
+  str += "      <div class='select-wrapper'>\r\n";
+  str += "        <select name='ssid_select' id='ssid_select'>\r\n";
   for (int i = 0; i < ssid_num; i++) {
     selected_str = (Selected_SSID_str == ssid_str[i]) ? " selected" : "";
-    str += "    <option value=\"" + ssid_str[i] + "\"" + selected_str + ">" +
-           ssid_rssi_str[i] + "</option>\r\n";
+    str += "          <option value=\"" + ssid_str[i] + "\"" + selected_str +
+           ">" + ssid_rssi_str[i] + "</option>\r\n";
   }
-  str += "  </select><br>\r\n";
-  str += "  <a href='/wifi_rescan' style='display:inline-block; padding:4px "
-         "10px; margin:4px 0 12px 0; background:#e0e0e0; border-radius:4px; "
-         "font-size:13px; color:#333;'>再検索</a><br>\r\n";
-  str += "  <label for='pass1'><b>Password:</b></label><br>\r\n";
-  str += "  <input type='password' name='pass1' id='pass1'><br>\r\n";
-  str += "  <button type='submit' name='ssid_sel_submit' value='send' "
-         "style='background-color:#AFA; font-weight:bold;'>SET</button>\r\n";
-  str += "</form><br><br>\r\n";
-  str += "<a href='/' style='color:navy;'>Home</a>\r\n";
+  str += "        </select>\r\n";
+  str += "        <button type='button' id='btn_rescan' onclick='rescanWifi()' "
+         "class='btn-rescan'><span id='spin_icon' class='spin-icon'>🔄</span> "
+         "<span id='rescan_text'>再検索</span></button>\r\n";
+  str += "      </div>\r\n";
+  str += "    </div>\r\n";
+  str += "    <div class='form-group'>\r\n";
+  str += "      <div class='label-row'>\r\n";
+  str += "        <label for='pass1'>パスワード</label>\r\n";
+  str += "      </div>\r\n";
+  str += "      <div class='pass-wrapper'>\r\n";
+  str += "        <input type='password' name='pass1' id='pass1' "
+         "placeholder='WiFi パスワードを入力'>\r\n";
+  str += "        <button type='button' id='btn_toggle_pass' "
+         "onclick='togglePass()' class='btn-toggle-pass'>👁️ 表示</button>\r\n";
+  str += "      </div>\r\n";
+  str += "    </div>\r\n";
+  str += "    <button type='submit' name='ssid_sel_submit' value='send' "
+         "class='btn-submit'>設定</button>\r\n";
+  str += "  </form>\r\n";
+  str += "</div>\r\n";
+  str += "<div class='nav-group'>\r\n";
+  str += "  <a href='/' class='btn-home'>Home</a>\r\n";
+  str += "</div>\r\n";
   return str;
 }
 
@@ -1653,14 +2692,19 @@ void html_send(boolean sta_connected, String message1, String message2,
   client.print(html_tag1);
   client.print(HTML_Select_Box_str(message1));
   if (message2.length() > 0 && message2 != "Connection close") {
+    String bg_col =
+        (color == "#00F" || color == "blue") ? "#eff6ff" : "#fef2f2";
+    String text_col =
+        (color == "#00F" || color == "blue") ? "#1d4ed8" : "#b91c1c";
     client.printf(
-        "<p style='color:%s; font-size:100%%; font-weight:bold;'>%s</p>\r\n",
-        color.c_str(), message2.c_str());
+        "<div class='msg-box' style='background:%s; color:%s;'>%s</div>\r\n",
+        bg_col.c_str(), text_col.c_str(), message2.c_str());
   }
   if (sta_connected) {
-    client.print("<span style='font-size:100%; color:blue;'>IP = ");
+    client.print("<div class='msg-box' style='background:#ecfdf5; "
+                 "color:#065f46;'>IP = ");
     client.print(LIP);
-    client.print("<br></span>\r\n");
+    client.print("</div>\r\n");
   }
   client.print(html_tag2);
 }
@@ -1700,6 +2744,48 @@ void wifi_scan(void) {
   WiFi.scanDelete();
 }
 
+void wifi_scan_ajax_proc(void) {
+  Serial.println("GET /wifi_scan_list (ajax rescan)");
+  while (client.available())
+    client.read();
+
+  int16_t n = WiFi.scanNetworks(false, false, false, 120);
+  if (n < 0)
+    n = 0;
+  ssid_num = (n > 30) ? 30 : n;
+  Serial.printf("scan done: %d networks found\r\n", ssid_num);
+
+  client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+                 "charset=utf-8\r\nConnection:close\r\n\r\n["));
+  for (int i = 0; i < ssid_num; ++i) {
+    ssid_str[i] = WiFi.SSID(i);
+    String wifi_auth_open =
+        ((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
+    ssid_rssi_str[i] =
+        ssid_str[i] + " (" + String(WiFi.RSSI(i)) + "dBm)" + wifi_auth_open;
+
+    if (i > 0)
+      client.print(",");
+    client.print("{\"ssid\":\"");
+    String s_esc = ssid_str[i];
+    s_esc.replace("\\", "\\\\");
+    s_esc.replace("\"", "\\\"");
+    client.print(s_esc);
+    client.print("\",\"disp\":\"");
+    String d_esc = ssid_rssi_str[i];
+    d_esc.replace("\\", "\\\\");
+    d_esc.replace("\"", "\\\"");
+    client.print(d_esc);
+    client.print("\"}");
+  }
+  client.print("]");
+  WiFi.scanDelete();
+  client.flush();
+  delay(50);
+  client.stop();
+  Serial.println("client disconnected (scan list sent)");
+}
+
 void wifi_rescan_proc(void) {
   Serial.println("GET /wifi_rescan");
   while (client.available())
@@ -1717,25 +2803,44 @@ void wifi_rescan_proc(void) {
       "<meta charset='utf-8'>\r\n"
       "<meta name='viewport' content='width=device-width, initial-scale=1'>\r\n"
       "<meta http-equiv='refresh' content='3;url=/wifi_set/'>\r\n"
+      "<title>WiFi 再検索中 - VST</title>\r\n"
       "<style>\r\n"
-      "  html { font-family: Helvetica, Arial, sans-serif; display: "
-      "inline-block; margin: 0px auto; text-align: center; }\r\n"
-      "  body { margin-top: 50px; }\r\n"
-      "  h1 { font-size: 22px; color: #333; }\r\n"
-      "  p { font-size: 15px; color: #666; }\r\n"
-      "  .loader { margin: 24px auto; border: 5px solid #f3f3f3; border-top: "
-      "5px solid #2196F3; border-radius: 50%; width: 40px; height: 40px; "
-      "animation: spin 1s linear infinite; }\r\n"
+      "  body {\r\n"
+      "    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
+      "Helvetica, Arial, sans-serif;\r\n"
+      "    background: #f1f5f9; margin: 0; padding: 40px 16px; color: #0f172a; "
+      "min-height: 100vh;\r\n"
+      "    box-sizing: border-box; text-align: center; display: flex; "
+      "align-items: center; justify-content: center;\r\n"
+      "  }\r\n"
+      "  .container {\r\n"
+      "    width: 100%; max-width: 460px; background: #ffffff; border: 1px "
+      "solid #cbd5e1;\r\n"
+      "    border-radius: 16px; padding: 32px 24px; box-shadow: 0 4px 12px "
+      "rgba(0,0,0,0.05); box-sizing: border-box;\r\n"
+      "  }\r\n"
+      "  h1 { font-size: 20px; font-weight: 700; color: #1e293b; margin: 0 0 "
+      "12px 0; }\r\n"
+      "  p { font-size: 14px; color: #64748b; line-height: 1.5; margin: 0; "
+      "}\r\n"
+      "  .loader {\r\n"
+      "    margin: 20px auto; border: 4px solid #e2e8f0; border-top: 4px solid "
+      "#0284c7;\r\n"
+      "    border-radius: 50%; width: 36px; height: 36px; animation: spin 0.8s "
+      "linear infinite;\r\n"
+      "  }\r\n"
       "  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: "
       "rotate(360deg); } }\r\n"
-      "  a { color: navy; text-decoration: none; font-size: 15px; }\r\n"
       "</style>\r\n"
       "</head>\r\n"
       "<body>\r\n"
-      "<h1>Wi-Fiを再検索中...</h1>\r\n"
-      "<div class='loader'></div>\r\n"
+      "  <div class='container'>\r\n"
+      "    <h1>📶 Wi-Fi を再検索中...</h1>\r\n"
+      "    <div class='loader'></div>\r\n"
+      "    "
       "<p>周囲のWi-Fiアクセスポイントをスキャンしています。<br>"
       "約3秒後に自動で設定画面へ戻ります。</p>\r\n"
+      "  </div>\r\n"
       "</body>\r\n</html>\r\n\r\n";
 
   client.print(html_res_head);
@@ -1766,6 +2871,62 @@ void wifi_set_proc() {
   delay(50);
   client.stop();
   Serial.println("client disconnected");
+}
+
+void send_wifi_success_page(IPAddress ip) {
+  String html =
+      "<!DOCTYPE HTML>\r\n<html>\r\n<head>\r\n"
+      "<meta charset='utf-8'>\r\n"
+      "<meta name='viewport' content='width=device-width, initial-scale=1'>\r\n"
+      "<title>WiFi設定成功 - VST</title>\r\n"
+      "<style>\r\n"
+      "  body {\r\n"
+      "    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
+      "Helvetica, Arial, sans-serif;\r\n"
+      "    background: #f1f5f9; margin: 0; padding: 24px 16px; color: #0f172a; "
+      "min-height: 100vh;\r\n"
+      "    box-sizing: border-box; text-align: center;\r\n"
+      "  }\r\n"
+      "  .container {\r\n"
+      "    width: 100%; max-width: 600px; margin: 0 auto; box-sizing: "
+      "border-box;\r\n"
+      "  }\r\n"
+      "  .card {\r\n"
+      "    background: #ffffff; border: 1px solid #cbd5e1; border-radius: "
+      "16px;\r\n"
+      "    padding: 36px 20px; margin-top: 16px; box-shadow: 0 4px 12px "
+      "rgba(0,0,0,0.05); box-sizing: border-box; text-align: center;\r\n"
+      "  }\r\n"
+      "  .icon { font-size: 54px; margin-bottom: 12px; }\r\n"
+      "  h1 { font-size: 26px; font-weight: 800; color: #16a34a; margin: 0 0 "
+      "16px 0; }\r\n"
+      "  .ip-card {\r\n"
+      "    background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: "
+      "12px;\r\n"
+      "    padding: 16px 14px; margin: 20px 0; font-family: monospace; "
+      "font-size: "
+      "22px;\r\n"
+      "    font-weight: 800; color: #15803d; letter-spacing: 0.5px;\r\n"
+      "  }\r\n"
+      "  .message { font-size: 16px; font-weight: 600; color: #475569; "
+      "line-height: 1.6; margin: 16px 0 0 0; }\r\n"
+      "</style>\r\n"
+      "</head>\r\n"
+      "<body>\r\n"
+      "  <div class='container'>\r\n"
+      "    <div class='card'>\r\n"
+      "      <div class='icon'>✅</div>\r\n"
+      "      <h1>WiFi設定成功</h1>\r\n"
+      "      <div class='ip-card'>IP = " +
+      ip.toString() +
+      "</div>\r\n"
+      "      <p class='message'>本体を再起動しました。</p>\r\n"
+      "    </div>\r\n"
+      "  </div>\r\n"
+      "</body>\r\n</html>\r\n\r\n";
+
+  client.print(html_res_head);
+  client.print(html);
 }
 
 void wifi_set_submit(String req_str) {
@@ -1810,8 +2971,7 @@ void wifi_set_submit(String req_str) {
         LIP = WiFi.localIP();
         Serial.print("\r\nWiFi connected: ");
         Serial.println(LIP);
-        html_send(true, Selected_SSID_str, "本体を再起動しました<br>", "#00F",
-                  html_res_head, html_tag1, html_tag2);
+        send_wifi_success_page(LIP);
         exit_flag = true;
       }
       if (exit_flag)
@@ -1919,8 +3079,9 @@ void get_mac_from_url(String req_str) {
       PARA.custom_mac = s_mac;
       update_client_id();
       eeprom_write();
-      Serial.printf("MAC Setting saved: use_custom=%d, custom_mac=%s, CLIENT_ID=%s\n",
-                    PARA.use_custom_mac, PARA.custom_mac.c_str(), CLIENT_ID.c_str());
+      Serial.printf(
+          "MAC Setting saved: use_custom=%d, custom_mac=%s, CLIENT_ID=%s\n",
+          PARA.use_custom_mac, PARA.custom_mac.c_str(), CLIENT_ID.c_str());
     }
   }
 }
@@ -1972,6 +3133,9 @@ void wifi_access_point() {
         else if (req_str.indexOf("GET /wifi_set/?") >= 0) {
           pre_url = "GET /wifi_set";
           wifi_set_submit(req_str);
+          req_str = "";
+        } else if (req_str.indexOf("GET /wifi_scan_list") >= 0) {
+          wifi_scan_ajax_proc();
           req_str = "";
         } else if (req_str.indexOf("GET /wifi_rescan") >= 0) {
           pre_url = "GET /wifi_set";
@@ -2065,16 +3229,16 @@ void wifi_access_point() {
           pre_url = "GET /ave_normal_set";
           PARA.s_n_xave_flg[0] =
               req_str.substring(req_str.indexOf("?average_normal0=") + 17,
-                                 req_str.indexOf("&average_normal1="));
+                                req_str.indexOf("&average_normal1="));
           PARA.s_n_xave_flg[1] =
               req_str.substring(req_str.indexOf("&average_normal1=") + 17,
-                                 req_str.indexOf("&average_normal2="));
+                                req_str.indexOf("&average_normal2="));
           PARA.s_n_xave_flg[2] =
               req_str.substring(req_str.indexOf("&average_normal2=") + 17,
-                                 req_str.indexOf("&average_normal3="));
+                                req_str.indexOf("&average_normal3="));
           PARA.s_n_xave_flg[3] =
               req_str.substring(req_str.indexOf("&average_normal3=") + 17,
-                                 req_str.indexOf("&ave_normal_submit"));
+                                req_str.indexOf("&ave_normal_submit"));
           for (int i = 0; i < 4; i++) {
             if (PARA.s_n_xave_flg[i] != "0" && PARA.s_n_xave_flg[i] != "1") {
               PARA.s_n_xave_flg[i] = "0";
