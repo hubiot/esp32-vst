@@ -4,7 +4,8 @@
 // の統合
 // =============================================================================
 
-// #define VST100        // VST-100なら定義、VST-01ならコメントアウト
+// 1:騒音・振動デバッグ用 0:通常動作
+#define NOISE_VIB_DEBUG 0
 // #define CLOUD_DEBUG 0 // クラウドデバッグ用 通常動作時は0をセット
 // 0:通常動作
 // 1:RFT-01クラウドデバッグ用  ch1のデータをCH4で代用
@@ -122,6 +123,7 @@ const char *awsEndpoint = "a24t2172v8g5ia-ats.iot.ap-northeast-1.amazonaws.com";
 const int awsPort = 8883;
 WiFiClientSecure httpsClient;
 PubSubClient mqttClient(httpsClient);
+boolean mqtt_error_flag = false; // MQTT送信失敗・未接続フラグ
 
 hw_timer_t *timer = NULL; // Watchdog Timer用
 
@@ -142,9 +144,14 @@ int PRE_PLS = 0;
 
 int RAW_MD[4];     // MCP3424 Raw測定値
 int PRE_RAW_MD[4]; // エラー時代替用前回値
+#if NOISE_VIB_DEBUG == 1
+int debug_raw_val = 1; // 1から6000へカウントアップ (完全逆順ストレステスト)
+#endif
+// L5=2850.50, L10=2700.50, L50=1500.50, L90=300.50, L95=150.50
+// MIN=0.50, MAX=3000.00, LEQ=2971.85
 unsigned int md_max[4], md_min[4];
 unsigned long md_sum[4];
-unsigned int SORT_DATA[2][6000]; // 騒音・振動パーセンタイル計算用ソートバッファ
+uint16_t SORT_DATA[2][6000]; // 騒音・振動パーセンタイル計算用ソートバッファ
 float SEND_DATA[25];
 
 // Core間データ受渡し用構造体・キュー
@@ -2167,6 +2174,10 @@ boolean eeprom_read(void) {
 // 測定モジュール (MCP3424 / Leq / 雨量計処理)
 // -----------------------------------------------------------------------------
 float md_trans(float val, trans_para *para) {
+#if NOISE_VIB_DEBUG == 1
+  return val / 2.0f; // 半分にした値 (最大3000)
+                     // を返し、Leqの浮動小数点オーバーフローを防止
+#else
   if ((para->meas_large - para->meas_small) == 0) {
     return val;
   }
@@ -2175,9 +2186,17 @@ float md_trans(float val, trans_para *para) {
                           (para->meas_large - para->meas_small)) *
                              (val - para->meas_small);
   return ftmp;
+#endif
 }
 
 void read_mcp3424(void) {
+#if NOISE_VIB_DEBUG == 1
+  for (int ch_num = 0; ch_num < 4; ch_num++) {
+    RAW_MD[ch_num] = debug_raw_val;
+    PRE_RAW_MD[ch_num] = RAW_MD[ch_num];
+  }
+  debug_raw_val++;
+#else
   int ch_num, val[3];
   static int adc_conv_time = 6;
   for (ch_num = 0; ch_num < 4; ch_num++) {
@@ -2202,6 +2221,7 @@ void read_mcp3424(void) {
       }
     }
   }
+#endif
 }
 
 void meas_set_param(int ch, int is_small, float val) {
@@ -2279,16 +2299,20 @@ void meas_adc_sample_step(void) {
           for (int j = 0; j < rcnt; j++)
             SEND_DATA[sd_cnt++] = ftmp;
         }
+#if NOISE_VIB_DEBUG == 1
+        debug_raw_val = 1;
+#endif
       } else {
         int sample_count = MCNT + 1;
         if (sample_count > 6000)
-          sample_count = 6000;
+          sample_count = 6000; // 内蔵クロックの誤差で6000回を超えたときの処理
+                               // 配列が6000個しかないため
 
         for (int i = 0; i < 2; i++) {
           // C++標準ライブラリの最高速ソート (Introsort / Quicksort)
           // で降順ソート
           std::sort(SORT_DATA[i], SORT_DATA[i] + sample_count,
-                    std::greater<unsigned int>());
+                    std::greater<uint16_t>());
 
           int idx_l5 = (int)(sample_count * 0.05 + 0.5) - 1;
           int idx_l10 = (int)(sample_count * 0.10 + 0.5) - 1;
@@ -2353,6 +2377,10 @@ void meas_adc_sample_step(void) {
       MCNT = 0;
       for (int i = 0; i < 2; i++)
         LEQ[i] = 0;
+#if NOISE_VIB_DEBUG == 1
+      debug_raw_val =
+          1; // ループカウンタがリセットされるタイミングで初期値を1に再設定
+#endif
     } else {
       MCNT++;
     }
@@ -2441,7 +2469,10 @@ void connect_awsiot() {
     Serial.print("Attempting MQTT connection...");
     if (mqttClient.connect(CLIENT_ID.c_str())) {
       Serial.println("connected");
+      mqtt_error_flag = false;
+      digitalWrite(STATUS_LED, LOW);
     } else {
+      mqtt_error_flag = true;
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
       Serial.println(" try again in 5 seconds");
@@ -2454,6 +2485,9 @@ void connect_awsiot() {
           start_ap_mode();
           return;
         }
+        digitalWrite(STATUS_LED, (millis() / 250) % 2 == 0
+                                     ? HIGH
+                                     : LOW); // MQTT失敗時: 0.5秒周期で高速点滅
         delay(100);
       }
     }
@@ -2506,6 +2540,10 @@ void wifi_connect(void) {
         start_ap_mode();
         return;
       }
+      digitalWrite(STATUS_LED,
+                   (millis() / 1000) % 2 == 0
+                       ? HIGH
+                       : LOW); // WiFi切断時: 2秒周期で点滅 (1秒ON/1秒OFF)
       delay(100);
     }
     Serial.print("WiFi connecting ");
@@ -2517,6 +2555,10 @@ void wifi_connect(void) {
   }
   if (time_adj_flag && !AP_MODE) {
     set_sysclcok();
+  }
+  if (!AP_MODE && !mqtt_error_flag &&
+      (PARA.model_no == 2 || mqttClient.connected())) {
+    digitalWrite(STATUS_LED, LOW);
   }
   if (timer)
     timerAlarmDisable(timer);
@@ -2531,8 +2573,13 @@ void aws_mqtt_publish(char *str) {
   mqttClient.loop();
   Serial.printf("Publishing to [%s]: ", PARA.pub_topic.c_str());
   Serial.println(str);
-  mqttClient.publish(PARA.pub_topic.c_str(), str);
-  Serial.println("Published.\n");
+  if (mqttClient.publish(PARA.pub_topic.c_str(), str)) {
+    Serial.println("Published.\n");
+    mqtt_error_flag = false;
+  } else {
+    Serial.println("Publish failed!\n");
+    mqtt_error_flag = true;
+  }
 }
 
 void connect_local_host(void) {
@@ -3715,7 +3762,18 @@ void loop() {
     wifi_access_point();
   } else {
     SMPL_TIME = 100;
-    digitalWrite(STATUS_LED, LOW);
+
+    // 通信エラー（WiFi切断 または MQTT未接続/送信失敗）的判定
+    if (WiFi.status() != WL_CONNECTED) {
+      // WiFi切断時: 2秒周期で点滅 (1秒ON / 1秒OFF)
+      digitalWrite(STATUS_LED, (millis() / 1000) % 2 == 0 ? HIGH : LOW);
+    } else if (PARA.model_no != 2 &&
+               (!mqttClient.connected() || mqtt_error_flag)) {
+      // MQTT失敗時: 0.5秒周期で高速点滅 (0.25秒ON / 0.25秒OFF)
+      digitalWrite(STATUS_LED, (millis() / 250) % 2 == 0 ? HIGH : LOW);
+    } else {
+      digitalWrite(STATUS_LED, LOW);
+    }
 
     // 測定タスク(Core 1)からキュー経由でデータを受信して送信
     if (sendDataQueue != NULL) {
