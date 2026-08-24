@@ -55,17 +55,21 @@ struct para_d {
   String host_ip;           // host ip (Local Server用)
   float shreshold;          // スレッシュホールド (雨量警報用)
   unsigned int meas_period; // 測定・通信周期(秒)
+  int use_custom_mac;       // 0: ESP32 Hardware MAC, 1: Custom Specified MAC
+  String custom_mac;        // 指定したMACアドレス
 };
 
 // 統合EEPROM保存用構造体 (固定長バイナリ)
 struct UnifiedEepromSettings {
-  char magic[8]; // "VST_U01"
+  char magic[8]; // "VST_U02"
   int model_no;
   char s_n_xave_flg[4][4];
   char host_ip[32];
   float shreshold;
   unsigned int meas_period;
   trans_para t_para[4];
+  int use_custom_mac;
+  char custom_mac[32];
 };
 
 // -----------------------------------------------------------------------------
@@ -241,6 +245,68 @@ const char *str_calibration = R"rawliteral(
   </script>
 </html>)rawliteral";
 
+const char *str_mac_set = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+      input[type=text] { font-size: 16px; padding: 6px; }
+      button { font-size: 16px; padding: 8px 24px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>MAC Address Setting</h1>
+    <p><table>
+      <tr><th>Current CLIENT_ID</th><th>ESP32 Hardware MAC</th></tr>
+      <tr><td><span id="current_client_id" class="value"></span></td><td><span id="hw_mac" class="value"></span></td></tr>
+    </table></p>
+    <form action='/mac_set/' method='GET'>
+      <p style='margin: 15px 0; font-size: 16px;'>
+        <label><input type="radio" name="use_custom_mac" value="0" id="mac_opt_hw"> ESP32 MACアドレスを使用 (Auto)</label><br><br>
+        <label><input type="radio" name="use_custom_mac" value="1" id="mac_opt_custom"> 指定したMACアドレスを使用 (Custom)</label>
+      </p>
+      <p>
+        <label>Custom MAC: </label>
+        <input type='text' name='custom_mac' id='custom_mac_input' value='' placeholder='e.g. 24-0a-c4-xx-xx-xx'>
+      </p>
+      <button type='submit' name='mac_submit' value='send' style='background-color:#AFA;'>Set</button>
+    </form>
+    <br><br>
+    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+  </body>
+  <script>
+    var disp_mac_param = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let val = this.responseText.split(',');
+          if (val[0] === "1") {
+            document.getElementById("mac_opt_custom").checked = true;
+          } else {
+            document.getElementById("mac_opt_hw").checked = true;
+          }
+          document.getElementById("custom_mac_input").value = val[1] || "";
+          document.getElementById("hw_mac").innerHTML = val[2] || "";
+          document.getElementById("current_client_id").innerHTML = val[3] || "";
+        }
+      };
+      xhr.open("GET", "/disp_mac_param", true);
+      xhr.send(null);
+    }
+    window.onload = disp_mac_param;
+  </script>
+</html>)rawliteral";
+
 const char *str_factory = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
@@ -274,6 +340,7 @@ const char *str_factory = R"rawliteral(
     <br><br><br><br>
     <a href='/' style='color:navy; font-size:20px;'>Home</a><br><br>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
+    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
     <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period</a><br><br>
     <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
@@ -316,6 +383,7 @@ const char *str_rex_noise_shake = R"rawliteral(
     <h1>ch1:noise ch2:vibration</h1>
     <h1>ch3:average ch4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
+    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
   </body>
 </html>)rawliteral";
@@ -342,6 +410,7 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
     <h1>ch1:noise ch2:vibration</h1>
     <h1>ch3:average ch4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
+    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
   </body>
 </html>)rawliteral";
@@ -366,6 +435,7 @@ const char *str_rex_rain = R"rawliteral(
   <body>
     <h1>ch1:rain ch2-4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
+    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
     <a href='/shreshold_set/' style='color:navy; font-size:20px;'>Shreshold</a>
   </body>
@@ -391,6 +461,7 @@ const char *str_normal_4ch_cloud = R"rawliteral(
   <body>
     <h1>4CH NORMAL CLOUD</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
+    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
     <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
   </body>
@@ -416,6 +487,7 @@ const char *str_normal_4ch_local = R"rawliteral(
   <body>
     <h1>4CH NORMAL LOCAL</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
+    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
     <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period Setting</a><br><br>
     <a href='/host_ip_set/' style='color:navy; font-size:20px;'>Server IP</a>
@@ -665,6 +737,9 @@ boolean is_float(String str);
 boolean is_number(String str);
 boolean chk_host_ip(String *str);
 String format_pass(String *pass_tmp);
+String get_hardware_mac(void);
+void update_client_id(void);
+void get_mac_from_url(String req_str);
 void IRAM_ATTR resetModule();
 
 // 測定関数プロトタイプ
@@ -752,6 +827,30 @@ String format_pass(String *pass_tmp) {
   return pw;
 }
 
+String get_hardware_mac(void) {
+  uint8_t mac0[6];
+  esp_efuse_mac_get_default(mac0);
+  String mac_str = "";
+  for (int i = 0; i < 6; i++) {
+    String stmp = String(mac0[i], HEX);
+    if (stmp.length() < 2)
+      stmp = "0" + stmp;
+    mac_str += stmp;
+    if (i < 5)
+      mac_str += "-";
+  }
+  return mac_str;
+}
+
+void update_client_id(void) {
+  String hw_mac = get_hardware_mac();
+  if (PARA.use_custom_mac == 1 && PARA.custom_mac.length() > 0) {
+    CLIENT_ID = PARA.custom_mac;
+  } else {
+    CLIENT_ID = hw_mac;
+  }
+}
+
 void IRAM_ATTR resetModule() { esp_restart(); }
 
 // -----------------------------------------------------------------------------
@@ -760,7 +859,7 @@ void IRAM_ATTR resetModule() { esp_restart(); }
 void eeprom_write(void) {
   UnifiedEepromSettings cfg;
   memset(&cfg, 0, sizeof(cfg));
-  strcpy(cfg.magic, "VST_U01");
+  strcpy(cfg.magic, "VST_U02");
   cfg.model_no = PARA.model_no;
   for (int i = 0; i < 4; i++) {
     strncpy(cfg.s_n_xave_flg[i], PARA.s_n_xave_flg[i].c_str(),
@@ -774,6 +873,9 @@ void eeprom_write(void) {
     cfg.t_para[i] = T_PARA[i];
   }
 
+  cfg.use_custom_mac = PARA.use_custom_mac;
+  strncpy(cfg.custom_mac, PARA.custom_mac.c_str(), sizeof(cfg.custom_mac) - 1);
+
   EEPROM.put(0, cfg);
   EEPROM.commit();
 }
@@ -783,26 +885,7 @@ boolean eeprom_read(void) {
   UnifiedEepromSettings cfg;
   EEPROM.get(0, cfg);
 
-  if (strcmp(cfg.magic, "VST_U01") != 0) {
-    // 初期値設定
-    PARA.model_no = 0; // rex noise/vibration
-    PARA.s_n_xave_flg[0] = "0";
-    PARA.s_n_xave_flg[1] = "0";
-    PARA.s_n_xave_flg[2] = "0";
-    PARA.s_n_xave_flg[3] = "0";
-    PARA.host_ip = "192.168.11.11";
-    PARA.shreshold = 9999.0;
-    PARA.meas_period = 600;
-
-    for (int i = 0; i < 4; i++) {
-      T_PARA[i].meas_large = 1831;
-      T_PARA[i].meas_small = 369;
-      T_PARA[i].para_large = 94.0;
-      T_PARA[i].para_small = 0.0;
-    }
-    eeprom_write();
-    return false;
-  } else {
+  if (strcmp(cfg.magic, "VST_U02") == 0) {
     PARA.model_no = cfg.model_no;
     if (PARA.model_no < 0 || PARA.model_no > 4)
       PARA.model_no = 0;
@@ -821,7 +904,60 @@ boolean eeprom_read(void) {
     for (int i = 0; i < 4; i++) {
       T_PARA[i] = cfg.t_para[i];
     }
+
+    PARA.use_custom_mac = cfg.use_custom_mac;
+    PARA.custom_mac = String(cfg.custom_mac);
+    PARA.custom_mac.trim();
+    update_client_id();
     return true;
+  } else if (strcmp(cfg.magic, "VST_U01") == 0) {
+    // 旧VST_U01からの互換マイグレーション
+    PARA.model_no = cfg.model_no;
+    if (PARA.model_no < 0 || PARA.model_no > 4)
+      PARA.model_no = 0;
+    for (int i = 0; i < 4; i++) {
+      PARA.s_n_xave_flg[i] = String(cfg.s_n_xave_flg[i]);
+      if (PARA.s_n_xave_flg[i] != "0" && PARA.s_n_xave_flg[i] != "1") {
+        PARA.s_n_xave_flg[i] = "0";
+      }
+    }
+    PARA.host_ip = String(cfg.host_ip);
+    PARA.shreshold = cfg.shreshold;
+    PARA.meas_period = cfg.meas_period;
+    if (PARA.meas_period < 2)
+      PARA.meas_period = 600;
+
+    for (int i = 0; i < 4; i++) {
+      T_PARA[i] = cfg.t_para[i];
+    }
+
+    PARA.use_custom_mac = 0;
+    PARA.custom_mac = "";
+    update_client_id();
+    eeprom_write();
+    return true;
+  } else {
+    // 初期値設定
+    PARA.model_no = 0; // rex noise/vibration
+    PARA.s_n_xave_flg[0] = "0";
+    PARA.s_n_xave_flg[1] = "0";
+    PARA.s_n_xave_flg[2] = "0";
+    PARA.s_n_xave_flg[3] = "0";
+    PARA.host_ip = "192.168.11.11";
+    PARA.shreshold = 9999.0;
+    PARA.meas_period = 600;
+    PARA.use_custom_mac = 0;
+    PARA.custom_mac = "";
+
+    for (int i = 0; i < 4; i++) {
+      T_PARA[i].meas_large = 1831;
+      T_PARA[i].meas_small = 369;
+      T_PARA[i].para_large = 94.0;
+      T_PARA[i].para_small = 0.0;
+    }
+    update_client_id();
+    eeprom_write();
+    return false;
   }
 }
 
@@ -1661,6 +1797,31 @@ void get_meas_period_from_url(String req_str) {
   }
 }
 
+void get_mac_from_url(String req_str) {
+  int16_t idx_mode = req_str.indexOf("use_custom_mac=");
+  if (idx_mode > 0) {
+    int16_t idx_custom_mac = req_str.indexOf("&custom_mac=");
+    int16_t idx_submit = req_str.indexOf("&mac_submit");
+    if (idx_custom_mac > 0) {
+      String s_mode = req_str.substring(idx_mode + 15, idx_custom_mac);
+      PARA.use_custom_mac = s_mode.toInt();
+      String s_mac = "";
+      if (idx_submit > idx_custom_mac) {
+        s_mac = req_str.substring(idx_custom_mac + 12, idx_submit);
+      } else {
+        s_mac = req_str.substring(idx_custom_mac + 12);
+      }
+      s_mac = format_pass(&s_mac);
+      s_mac.trim();
+      PARA.custom_mac = s_mac;
+      update_client_id();
+      eeprom_write();
+      Serial.printf("MAC Setting saved: use_custom=%d, custom_mac=%s, CLIENT_ID=%s\n",
+                    PARA.use_custom_mac, PARA.custom_mac.c_str(), CLIENT_ID.c_str());
+    }
+  }
+}
+
 void favicon_response() {
   while (client.available())
     client.read();
@@ -1695,6 +1856,28 @@ void wifi_access_point() {
           pre_url = "GET /wifi_set";
           wifi_set_proc();
           req_str = "";
+        } else if (req_str.indexOf("GET /mac_set/?") >= 0) {
+          pre_url = "GET /mac_set";
+          get_mac_from_url(req_str);
+          client.print(html_res_head);
+          client.print(str_mac_set);
+          delay(10);
+          client.stop();
+          req_str = "";
+        } else if (req_str.indexOf("GET /mac_set") >= 0) {
+          pre_url = "GET /mac_set";
+          client.print(html_res_head);
+          client.print(str_mac_set);
+          delay(10);
+          client.stop();
+          req_str = "";
+        } else if (req_str.indexOf("GET /disp_mac_param") >= 0) {
+          client.print(html_res_head2);
+          String stmp = String(PARA.use_custom_mac) + "," + PARA.custom_mac +
+                        "," + get_hardware_mac() + "," + CLIENT_ID;
+          client.print(stmp.c_str());
+          delay(10);
+          client.stop();
         } else if (req_str.indexOf("GET /disp_trans_param") >= 0 ||
                    req_str.indexOf("GET /get_meas_param") >= 0) {
           PAGE_NUM = 1;
@@ -1871,7 +2054,9 @@ void wifi_access_point() {
           req_str = "";
         } else {
           client.print(html_res_head404);
-          if (pre_url.indexOf("GET /param_set") >= 0)
+          if (pre_url.indexOf("GET /mac_set") >= 0)
+            client.print(str_mac_set);
+          else if (pre_url.indexOf("GET /param_set") >= 0)
             client.print(str_calibration);
           else if (pre_url.indexOf("GET /meas_period_set") >= 0)
             client.print(str_meas_period);
@@ -1904,18 +2089,13 @@ void disp_info(void) {
   Serial.println("VST-01 (Unified 1-Chip 1-CPU)");
 #endif
 
-  uint8_t mac0[6];
-  esp_efuse_mac_get_default(mac0);
-  CLIENT_ID = "";
-  for (int i = 0; i < 6; i++) {
-    String stmp = String(mac0[i], HEX);
-    if (stmp.length() < 2)
-      stmp = "0" + stmp;
-    CLIENT_ID += stmp;
-    if (i < 5)
-      CLIENT_ID += "-";
+  update_client_id();
+  Serial.printf("ESP32 HARDWARE MAC: %s\n", get_hardware_mac().c_str());
+  if (PARA.use_custom_mac == 1 && PARA.custom_mac.length() > 0) {
+    Serial.printf("CLIENT_ID (Custom MAC): %s\n", CLIENT_ID.c_str());
+  } else {
+    Serial.printf("CLIENT_ID (Hardware MAC): %s\n", CLIENT_ID.c_str());
   }
-  Serial.printf("MAC ADDRESS: %s\n", CLIENT_ID.c_str());
   Serial.printf("Model: %d\n", PARA.model_no);
   switch (PARA.model_no) {
   case 0:
@@ -1932,9 +2112,8 @@ void disp_info(void) {
     Serial.println("RAIN");
     break;
   case 4:
-    Serial.println(
-        "NOISE/VIBRATION(Every 10 minutes on the clock) (CH1:noise, "
-        "CH2:vibration, CH3:ave, CH4:ave / 10-min periodic)");
+    Serial.println("NOISE/VIBRATION(Every 10 minutes on the clock) (CH1:noise, "
+                   "CH2:vibration, CH3:ave, CH4:ave / 10-min periodic)");
     break;
   }
   Serial.printf("Meas Period: %d sec\n", PARA.meas_period);
@@ -2137,7 +2316,8 @@ void loop() {
       }
     }
 
-    // 雨量計モード (Model 3) および 定時騒音振動モード (Model 4) の定時トリガー (10分周期) & NTP同期 (毎日 03:05)
+    // 雨量計モード (Model 3) および 定時騒音振動モード (Model 4) の定時トリガー
+    // (10分周期) & NTP同期 (毎日 03:05)
     if (PARA.model_no == 3 || PARA.model_no == 4) {
       time(&CUR_TIME);
       struct tm *tm = localtime(&CUR_TIME);
