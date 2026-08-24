@@ -57,11 +57,12 @@ struct para_d {
   unsigned int meas_period; // 測定・通信周期(秒)
   int use_custom_mac;       // 0: ESP32 Hardware MAC, 1: Custom Specified MAC
   String custom_mac;        // 指定したMACアドレス
+  String pub_topic;         // MQTT Publish Topic ("pub_prod", "pub01" 等)
 };
 
 // 統合EEPROM保存用構造体 (固定長バイナリ)
 struct UnifiedEepromSettings {
-  char magic[8]; // "VST_U02"
+  char magic[8]; // "VST_U03"
   int model_no;
   char s_n_xave_flg[4][4];
   char host_ip[32];
@@ -70,6 +71,7 @@ struct UnifiedEepromSettings {
   trans_para t_para[4];
   int use_custom_mac;
   char custom_mac[32];
+  char pub_topic[32];
 };
 
 // -----------------------------------------------------------------------------
@@ -79,7 +81,7 @@ para_d PARA;
 trans_para T_PARA[4];
 
 // 通信・Web関連変数
-const char *pubTopic = "pub01"; // クラウドデバッグ環境用 ("pub_prod" は製品版)
+const char *pubTopic = "pub_prod"; // デフォルト製品版 ("pub01" はクラウドデバッグ用)
 const char ntp_server[][30] = {"ntp.nict.jp", "pool.ntp.org",
                                "ntp.jst.mfeed.ad.jp"};
 long CUR_TIME;
@@ -282,7 +284,7 @@ const char *str_mac_set = R"rawliteral(
       <button type='submit' name='mac_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
     <br><br>
-    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+    <a href='/f1c9t' style='color:navy; font-size:20px;'>Factory Home</a>
   </body>
   <script>
     var disp_mac_param = function () {
@@ -304,6 +306,70 @@ const char *str_mac_set = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_mac_param;
+  </script>
+</html>)rawliteral";
+
+const char *str_topic_set = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
+      h1 {font-size:28px;}
+      body {text-align: center;} 
+      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
+      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
+      tr { border: solid 2px #c0c0c0; padding: 12px;}
+      td { border: solid 2px #c0c0c0; padding: 12px;}
+      .value { color:blue; font-weight: bold; padding: 1px;}
+      input[type=text] { font-size: 16px; padding: 6px; }
+      button { font-size: 16px; padding: 8px 24px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>Publish Topic Setting</h1>
+    <p><table>
+      <tr><th>Current Publish Topic</th></tr>
+      <tr><td><span id="current_topic" class="value"></span></td></tr>
+    </table></p>
+    <form action='/topic_set/' method='GET'>
+      <p style='margin: 15px 0; font-size: 16px; text-align: left; display: inline-block;'>
+        <label><input type="radio" name="topic_preset" value="pub_prod" id="topic_opt_prod" onclick="document.getElementById('custom_topic_input').value='pub_prod'"> 製品版 (pub_prod) [デフォルト]</label><br><br>
+        <label><input type="radio" name="topic_preset" value="pub01" id="topic_opt_debug" onclick="document.getElementById('custom_topic_input').value='pub01'"> クラウドデバッグ用 (pub01)</label><br><br>
+        <label><input type="radio" name="topic_preset" value="custom" id="topic_opt_custom"> カスタム指定</label>
+      </p>
+      <p>
+        <label>Topic: </label>
+        <input type='text' name='pub_topic' id='custom_topic_input' value='' placeholder='e.g. pub_prod'>
+      </p>
+      <button type='submit' name='topic_submit' value='send' style='background-color:#AFA;'>Set</button>
+    </form>
+    <br><br>
+    <a href='/f1c9t' style='color:navy; font-size:20px;'>Factory Home</a>
+  </body>
+  <script>
+    var disp_topic_param = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let topic = this.responseText.trim();
+          document.getElementById("current_topic").innerHTML = topic;
+          document.getElementById("custom_topic_input").value = topic;
+          if (topic === "pub_prod") {
+            document.getElementById("topic_opt_prod").checked = true;
+          } else if (topic === "pub01") {
+            document.getElementById("topic_opt_debug").checked = true;
+          } else {
+            document.getElementById("topic_opt_custom").checked = true;
+          }
+        }
+      };
+      xhr.open("GET", "/disp_topic_param", true);
+      xhr.send(null);
+    }
+    window.onload = disp_topic_param;
   </script>
 </html>)rawliteral";
 
@@ -338,12 +404,13 @@ const char *str_factory = R"rawliteral(
       <button type='submit' name='factory_param_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
     <br><br><br><br>
-    <a href='/' style='color:navy; font-size:20px;'>Home</a><br><br>
-    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
     <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
-    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
+    <a href='/topic_set/' style='color:navy; font-size:20px;'>Publish Topic Setting</a><br><br>
     <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period</a><br><br>
-    <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
+    <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a><br><br>
+    <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
+    <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
+    <a href='/' style='color:navy; font-size:20px;'>Home</a>
   </body>
   <script>
     var factory_param = function () {
@@ -383,7 +450,6 @@ const char *str_rex_noise_shake = R"rawliteral(
     <h1>ch1:noise ch2:vibration</h1>
     <h1>ch3:average ch4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
   </body>
 </html>)rawliteral";
@@ -410,7 +476,6 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
     <h1>ch1:noise ch2:vibration</h1>
     <h1>ch3:average ch4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a>
   </body>
 </html>)rawliteral";
@@ -435,7 +500,6 @@ const char *str_rex_rain = R"rawliteral(
   <body>
     <h1>ch1:rain ch2-4:average</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
     <a href='/shreshold_set/' style='color:navy; font-size:20px;'>Shreshold</a>
   </body>
@@ -461,7 +525,6 @@ const char *str_normal_4ch_cloud = R"rawliteral(
   <body>
     <h1>4CH NORMAL CLOUD</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
     <a href='/ave_normal_set/' style='color:navy; font-size:20px;'>Average / Normal Setting</a>
   </body>
@@ -487,7 +550,6 @@ const char *str_normal_4ch_local = R"rawliteral(
   <body>
     <h1>4CH NORMAL LOCAL</h1>
     <a href='/wifi_set/' style='color:navy; font-size:20px;'>WiFi Setting</a><br><br>
-    <a href='/mac_set/' style='color:navy; font-size:20px;'>MAC Address Setting</a><br><br>
     <a href='/param_set/' style='color:navy; font-size:20px;'>Calibration</a><br><br>
     <a href='/meas_period_set/' style='color:navy; font-size:20px;'>Measurement Period Setting</a><br><br>
     <a href='/host_ip_set/' style='color:navy; font-size:20px;'>Server IP</a>
@@ -568,7 +630,7 @@ const char *str_meas_period = R"rawliteral(
       <button type='submit' name='meas_period_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
     <br>
-    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+    <a href='/f1c9t' style='color:navy; font-size:20px;'>Factory Home</a>
   </body>
   <script>
     var disp_meas_period = function () {
@@ -664,7 +726,7 @@ const char *str_ave_normal = R"rawliteral(
       <button type='submit' name='ave_normal_submit' value='send' style='background-color:#AFA;'>Set</button>
     </form>
     <br>
-    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+    <a href='/f1c9t' style='color:navy; font-size:20px;'>Factory Home</a>
   </body>
   <script>
     var disp_ave_normal = function () {
@@ -740,6 +802,7 @@ String format_pass(String *pass_tmp);
 String get_hardware_mac(void);
 void update_client_id(void);
 void get_mac_from_url(String req_str);
+void get_topic_from_url(String req_str);
 void IRAM_ATTR resetModule();
 
 // 測定関数プロトタイプ
@@ -859,7 +922,7 @@ void IRAM_ATTR resetModule() { esp_restart(); }
 void eeprom_write(void) {
   UnifiedEepromSettings cfg;
   memset(&cfg, 0, sizeof(cfg));
-  strcpy(cfg.magic, "VST_U02");
+  strcpy(cfg.magic, "VST_U03");
   cfg.model_no = PARA.model_no;
   for (int i = 0; i < 4; i++) {
     strncpy(cfg.s_n_xave_flg[i], PARA.s_n_xave_flg[i].c_str(),
@@ -875,6 +938,7 @@ void eeprom_write(void) {
 
   cfg.use_custom_mac = PARA.use_custom_mac;
   strncpy(cfg.custom_mac, PARA.custom_mac.c_str(), sizeof(cfg.custom_mac) - 1);
+  strncpy(cfg.pub_topic, PARA.pub_topic.c_str(), sizeof(cfg.pub_topic) - 1);
 
   EEPROM.put(0, cfg);
   EEPROM.commit();
@@ -885,7 +949,7 @@ boolean eeprom_read(void) {
   UnifiedEepromSettings cfg;
   EEPROM.get(0, cfg);
 
-  if (strcmp(cfg.magic, "VST_U02") == 0) {
+  if (strcmp(cfg.magic, "VST_U03") == 0) {
     PARA.model_no = cfg.model_no;
     if (PARA.model_no < 0 || PARA.model_no > 4)
       PARA.model_no = 0;
@@ -908,7 +972,43 @@ boolean eeprom_read(void) {
     PARA.use_custom_mac = cfg.use_custom_mac;
     PARA.custom_mac = String(cfg.custom_mac);
     PARA.custom_mac.trim();
+
+    PARA.pub_topic = String(cfg.pub_topic);
+    PARA.pub_topic.trim();
+    if (PARA.pub_topic.length() == 0) {
+      PARA.pub_topic = "pub_prod";
+    }
+
     update_client_id();
+    return true;
+  } else if (strcmp(cfg.magic, "VST_U02") == 0) {
+    // VST_U02からの移行
+    PARA.model_no = cfg.model_no;
+    if (PARA.model_no < 0 || PARA.model_no > 4)
+      PARA.model_no = 0;
+    for (int i = 0; i < 4; i++) {
+      PARA.s_n_xave_flg[i] = String(cfg.s_n_xave_flg[i]);
+      if (PARA.s_n_xave_flg[i] != "0" && PARA.s_n_xave_flg[i] != "1") {
+        PARA.s_n_xave_flg[i] = "0";
+      }
+    }
+    PARA.host_ip = String(cfg.host_ip);
+    PARA.shreshold = cfg.shreshold;
+    PARA.meas_period = cfg.meas_period;
+    if (PARA.meas_period < 2)
+      PARA.meas_period = 600;
+
+    for (int i = 0; i < 4; i++) {
+      T_PARA[i] = cfg.t_para[i];
+    }
+
+    PARA.use_custom_mac = cfg.use_custom_mac;
+    PARA.custom_mac = String(cfg.custom_mac);
+    PARA.custom_mac.trim();
+    PARA.pub_topic = "pub_prod";
+
+    update_client_id();
+    eeprom_write();
     return true;
   } else if (strcmp(cfg.magic, "VST_U01") == 0) {
     // 旧VST_U01からの互換マイグレーション
@@ -933,6 +1033,8 @@ boolean eeprom_read(void) {
 
     PARA.use_custom_mac = 0;
     PARA.custom_mac = "";
+    PARA.pub_topic = "pub_prod";
+
     update_client_id();
     eeprom_write();
     return true;
@@ -948,6 +1050,7 @@ boolean eeprom_read(void) {
     PARA.meas_period = 600;
     PARA.use_custom_mac = 0;
     PARA.custom_mac = "";
+    PARA.pub_topic = "pub_prod";
 
     for (int i = 0; i < 4; i++) {
       T_PARA[i].meas_large = 1831;
@@ -1327,9 +1430,9 @@ void aws_mqtt_publish(char *str) {
   if (AP_MODE)
     return;
   mqttClient.loop();
-  Serial.print("Publishing: ");
+  Serial.printf("Publishing to [%s]: ", PARA.pub_topic.c_str());
   Serial.println(str);
-  mqttClient.publish(pubTopic, str);
+  mqttClient.publish(PARA.pub_topic.c_str(), str);
   Serial.println("Published.\n");
 }
 
@@ -1822,6 +1925,28 @@ void get_mac_from_url(String req_str) {
   }
 }
 
+void get_topic_from_url(String req_str) {
+  int16_t idx_topic = req_str.indexOf("pub_topic=");
+  if (idx_topic > 0) {
+    int16_t idx_submit = req_str.indexOf("&topic_submit");
+    String s_topic = "";
+    if (idx_submit > idx_topic) {
+      s_topic = req_str.substring(idx_topic + 10, idx_submit);
+    } else {
+      s_topic = req_str.substring(idx_topic + 10);
+    }
+    s_topic = format_pass(&s_topic);
+    s_topic.trim();
+    if (s_topic.length() > 0) {
+      PARA.pub_topic = s_topic;
+    } else {
+      PARA.pub_topic = "pub_prod";
+    }
+    eeprom_write();
+    Serial.printf("Publish Topic Setting saved: %s\n", PARA.pub_topic.c_str());
+  }
+}
+
 void favicon_response() {
   while (client.available())
     client.read();
@@ -1878,6 +2003,26 @@ void wifi_access_point() {
           client.print(stmp.c_str());
           delay(10);
           client.stop();
+        } else if (req_str.indexOf("GET /topic_set/?") >= 0) {
+          pre_url = "GET /topic_set";
+          get_topic_from_url(req_str);
+          client.print(html_res_head);
+          client.print(str_topic_set);
+          delay(10);
+          client.stop();
+          req_str = "";
+        } else if (req_str.indexOf("GET /topic_set") >= 0) {
+          pre_url = "GET /topic_set";
+          client.print(html_res_head);
+          client.print(str_topic_set);
+          delay(10);
+          client.stop();
+          req_str = "";
+        } else if (req_str.indexOf("GET /disp_topic_param") >= 0) {
+          client.print(html_res_head2);
+          client.print(PARA.pub_topic.c_str());
+          delay(10);
+          client.stop();
         } else if (req_str.indexOf("GET /disp_trans_param") >= 0 ||
                    req_str.indexOf("GET /get_meas_param") >= 0) {
           PAGE_NUM = 1;
@@ -1920,16 +2065,16 @@ void wifi_access_point() {
           pre_url = "GET /ave_normal_set";
           PARA.s_n_xave_flg[0] =
               req_str.substring(req_str.indexOf("?average_normal0=") + 17,
-                                req_str.indexOf("&average_normal1="));
+                                 req_str.indexOf("&average_normal1="));
           PARA.s_n_xave_flg[1] =
               req_str.substring(req_str.indexOf("&average_normal1=") + 17,
-                                req_str.indexOf("&average_normal2="));
+                                 req_str.indexOf("&average_normal2="));
           PARA.s_n_xave_flg[2] =
               req_str.substring(req_str.indexOf("&average_normal2=") + 17,
-                                req_str.indexOf("&average_normal3="));
+                                 req_str.indexOf("&average_normal3="));
           PARA.s_n_xave_flg[3] =
               req_str.substring(req_str.indexOf("&average_normal3=") + 17,
-                                req_str.indexOf("&ave_normal_submit"));
+                                 req_str.indexOf("&ave_normal_submit"));
           for (int i = 0; i < 4; i++) {
             if (PARA.s_n_xave_flg[i] != "0" && PARA.s_n_xave_flg[i] != "1") {
               PARA.s_n_xave_flg[i] = "0";
@@ -2056,6 +2201,8 @@ void wifi_access_point() {
           client.print(html_res_head404);
           if (pre_url.indexOf("GET /mac_set") >= 0)
             client.print(str_mac_set);
+          else if (pre_url.indexOf("GET /topic_set") >= 0)
+            client.print(str_topic_set);
           else if (pre_url.indexOf("GET /param_set") >= 0)
             client.print(str_calibration);
           else if (pre_url.indexOf("GET /meas_period_set") >= 0)
@@ -2096,6 +2243,7 @@ void disp_info(void) {
   } else {
     Serial.printf("CLIENT_ID (Hardware MAC): %s\n", CLIENT_ID.c_str());
   }
+  Serial.printf("Publish Topic: %s\n", PARA.pub_topic.c_str());
   Serial.printf("Model: %d\n", PARA.model_no);
   switch (PARA.model_no) {
   case 0:
