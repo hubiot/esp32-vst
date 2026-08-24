@@ -4,8 +4,8 @@
 // の統合
 // =============================================================================
 
-#define VST100        // VST-100なら定義、VST-01ならコメントアウト
-#define CLOUD_DEBUG 0 // クラウドデバッグ用 通常動作時は0をセット
+// #define VST100        // VST-100なら定義、VST-01ならコメントアウト
+// #define CLOUD_DEBUG 0 // クラウドデバッグ用 通常動作時は0をセット
 // 0:通常動作
 // 1:RFT-01クラウドデバッグ用  ch1のデータをCH4で代用
 // 2:VST-01 騒音振動番チェック すべてのデータをCH4で代用
@@ -58,11 +58,12 @@ struct para_d {
   int use_custom_mac;       // 0: ESP32 Hardware MAC, 1: Custom Specified MAC
   String custom_mac;        // 指定したMACアドレス
   String pub_topic;         // MQTT Publish Topic ("pub_prod", "pub01" 等)
+  float pulse_weight;       // 1パルスあたりの雨量(mm), デフォルト 0.5
 };
 
 // 統合EEPROM保存用構造体 (固定長バイナリ)
 struct UnifiedEepromSettings {
-  char magic[8]; // "VST_U03"
+  char magic[8]; // "VST_U04"
   int model_no;
   char s_n_xave_flg[4][4];
   char host_ip[32];
@@ -72,6 +73,7 @@ struct UnifiedEepromSettings {
   int use_custom_mac;
   char custom_mac[32];
   char pub_topic[32];
+  float pulse_weight;
 };
 
 // -----------------------------------------------------------------------------
@@ -809,7 +811,7 @@ const char *str_rex_noise_shake = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
       </div>
     </div>
@@ -935,7 +937,7 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
       </div>
     </div>
@@ -977,6 +979,12 @@ const char *str_rex_rain = R"rawliteral(
       }
       .ch-badge { font-size: 12px; font-weight: bold; color: #16a34a; margin-bottom: 6px; }
       .ch-name { font-size: 16px; font-weight: 600; color: #334155; }
+      .period-banner {
+        margin-top: 16px; padding: 14px;
+        background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px;
+        font-size: 14px; font-weight: 600; color: #065f46;
+        text-align: center;
+      }
       .nav-group { display: flex; flex-direction: column; gap: 12px; }
       .btn {
         display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
@@ -1019,10 +1027,25 @@ const char *str_rex_rain = R"rawliteral(
             <div class="ch-name" id="mode_ch4">平均</div>
           </div>
         </div>
+        <div class="period-banner">
+          <span>⏱️ 送信時間: 毎時 00, 10, 20, 30, 40, 50分</span>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <div class="info-title">1転倒雨量</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 14px;">
+          <span style="font-weight: 600; color: #64748b;">現在の設定:</span>
+          <span><span id="disp_pulse_weight" style="font-family: monospace; font-weight: 700; color: #16a34a; font-size: 17px;">-</span> mm</span>
+        </div>
+        <form action="/pulse_set/" method="GET" style="display: flex; gap: 8px;">
+          <input type="text" name="pulse_weight" id="pulse_weight_input" placeholder="例: 0.5" style="width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 14px; box-sizing: border-box;">
+          <button type="submit" name="pulse_submit" value="send" style="padding: 10px 20px; border: none; border-radius: 8px; background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); color: #ffffff; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap;">設定</button>
+        </form>
       </div>
 
       <div class="nav-group">
-        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/shreshold_set/" class="btn btn-secondary">📊 閾値 (Shreshold) 設定</a>
       </div>
@@ -1045,7 +1068,22 @@ const char *str_rex_rain = R"rawliteral(
       xhr.open("GET", "/disp_ave_normal", true);
       xhr.send(null);
     }
-    window.onload = disp_ave_normal;
+    var disp_pulse_param = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let p = this.responseText.trim();
+          document.getElementById("disp_pulse_weight").innerText = p;
+          document.getElementById("pulse_weight_input").value = p;
+        }
+      };
+      xhr.open("GET", "/disp_pulse_param", true);
+      xhr.send(null);
+    }
+    window.onload = function() {
+      disp_ave_normal();
+      disp_pulse_param();
+    };
   </script>
 </html>)rawliteral";
 
@@ -1129,7 +1167,7 @@ const char *str_normal_4ch_cloud = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/ave_normal_set/" class="btn btn-secondary">📈 平均 / 瞬時値 設定</a>
       </div>
@@ -1236,7 +1274,7 @@ const char *str_normal_4ch_local = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href="/wifi_set/" class="btn btn-primary">📶 WiFi 設定</a>
+        <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/meas_period_set/" class="btn btn-secondary">⏱️ 測定周期 設定</a>
         <a href="/host_ip_set/" class="btn btn-secondary">🌐 サーバ IP 設定</a>
@@ -1820,6 +1858,7 @@ String get_hardware_mac(void);
 void update_client_id(void);
 void get_mac_from_url(String req_str);
 void get_topic_from_url(String req_str);
+void get_pulse_from_url(String req_str);
 void IRAM_ATTR resetModule();
 
 // 測定関数プロトタイプ
@@ -1939,7 +1978,7 @@ void IRAM_ATTR resetModule() { esp_restart(); }
 void eeprom_write(void) {
   UnifiedEepromSettings cfg;
   memset(&cfg, 0, sizeof(cfg));
-  strcpy(cfg.magic, "VST_U03");
+  strcpy(cfg.magic, "VST_U04");
   cfg.model_no = PARA.model_no;
   for (int i = 0; i < 4; i++) {
     strncpy(cfg.s_n_xave_flg[i], PARA.s_n_xave_flg[i].c_str(),
@@ -1956,6 +1995,7 @@ void eeprom_write(void) {
   cfg.use_custom_mac = PARA.use_custom_mac;
   strncpy(cfg.custom_mac, PARA.custom_mac.c_str(), sizeof(cfg.custom_mac) - 1);
   strncpy(cfg.pub_topic, PARA.pub_topic.c_str(), sizeof(cfg.pub_topic) - 1);
+  cfg.pulse_weight = PARA.pulse_weight;
 
   EEPROM.put(0, cfg);
   EEPROM.commit();
@@ -1966,7 +2006,7 @@ boolean eeprom_read(void) {
   UnifiedEepromSettings cfg;
   EEPROM.get(0, cfg);
 
-  if (strcmp(cfg.magic, "VST_U03") == 0) {
+  if (strcmp(cfg.magic, "VST_U04") == 0) {
     PARA.model_no = cfg.model_no;
     if (PARA.model_no < 0 || PARA.model_no > 4)
       PARA.model_no = 0;
@@ -1996,7 +2036,46 @@ boolean eeprom_read(void) {
       PARA.pub_topic = "pub_prod";
     }
 
+    PARA.pulse_weight = cfg.pulse_weight;
+    if (PARA.pulse_weight <= 0.0f || isnan(PARA.pulse_weight)) {
+      PARA.pulse_weight = 0.5f;
+    }
+
     update_client_id();
+    return true;
+  } else if (strcmp(cfg.magic, "VST_U03") == 0) {
+    PARA.model_no = cfg.model_no;
+    if (PARA.model_no < 0 || PARA.model_no > 4)
+      PARA.model_no = 0;
+    for (int i = 0; i < 4; i++) {
+      PARA.s_n_xave_flg[i] = String(cfg.s_n_xave_flg[i]);
+      if (PARA.s_n_xave_flg[i] != "0" && PARA.s_n_xave_flg[i] != "1") {
+        PARA.s_n_xave_flg[i] = "0";
+      }
+    }
+    PARA.host_ip = String(cfg.host_ip);
+    PARA.shreshold = cfg.shreshold;
+    PARA.meas_period = cfg.meas_period;
+    if (PARA.meas_period < 2)
+      PARA.meas_period = 600;
+
+    for (int i = 0; i < 4; i++) {
+      T_PARA[i] = cfg.t_para[i];
+    }
+
+    PARA.use_custom_mac = cfg.use_custom_mac;
+    PARA.custom_mac = String(cfg.custom_mac);
+    PARA.custom_mac.trim();
+
+    PARA.pub_topic = String(cfg.pub_topic);
+    PARA.pub_topic.trim();
+    if (PARA.pub_topic.length() == 0) {
+      PARA.pub_topic = "pub_prod";
+    }
+    PARA.pulse_weight = 0.5f;
+
+    update_client_id();
+    eeprom_write();
     return true;
   } else if (strcmp(cfg.magic, "VST_U02") == 0) {
     // VST_U02からの移行
@@ -2023,6 +2102,7 @@ boolean eeprom_read(void) {
     PARA.custom_mac = String(cfg.custom_mac);
     PARA.custom_mac.trim();
     PARA.pub_topic = "pub_prod";
+    PARA.pulse_weight = 0.5f;
 
     update_client_id();
     eeprom_write();
@@ -2051,6 +2131,7 @@ boolean eeprom_read(void) {
     PARA.use_custom_mac = 0;
     PARA.custom_mac = "";
     PARA.pub_topic = "pub_prod";
+    PARA.pulse_weight = 0.5f;
 
     update_client_id();
     eeprom_write();
@@ -2068,6 +2149,7 @@ boolean eeprom_read(void) {
     PARA.use_custom_mac = 0;
     PARA.custom_mac = "";
     PARA.pub_topic = "pub_prod";
+    PARA.pulse_weight = 0.5f;
 
     for (int i = 0; i < 4; i++) {
       T_PARA[i].meas_large = 1831;
@@ -2333,7 +2415,7 @@ boolean set_sysclcok() {
   }
   time(&CUR_TIME);
   struct tm *tm = localtime(&CUR_TIME);
-  Serial.printf("Time: %02d:%02d\n", tm->tm_hour, tm->tm_min);
+  Serial.printf("Time: %02d:%02d:%02d\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
   CUR_MIN = tm->tm_min;
   return true;
 }
@@ -2502,12 +2584,14 @@ void comm_publish_meas_data(float *sdata) {
   // sdata[22..23]: ch4 (VAL, AVE)
   // sdata[24]: rain count
 
-  Serial.println("Measured Data Ready:");
-  for (int i = 0; i < 25; i++) {
-    Serial.print(sdata[i]);
-    Serial.print(" ");
-  }
-  Serial.println("");
+  /*
+    Serial.println("Measured Data Ready:");
+    for (int i = 0; i < 25; i++) {
+      Serial.print(sdata[i]);
+      Serial.print(" ");
+    }
+    Serial.println("");
+  */
 
   String dt_ch1 = "";
   String dt_ch2 = "";
@@ -2540,9 +2624,8 @@ void comm_publish_meas_data(float *sdata) {
             st_ch1, st_ch2, st_ch3, st_ch4);
     break;
 
-  case 3: // rex 雨量
-  {
-    float ftmp = sdata[24] * 0.5; // 1pulse = 0.5mm
+  case 3: {                                     // rex 雨量
+    float ftmp = sdata[24] * PARA.pulse_weight; // 1pulse = PARA.pulse_weight mm
     time(&CUR_TIME);
     struct tm *tm = localtime(&CUR_TIME);
     if (tm->tm_min == 10) {
@@ -2573,30 +2656,10 @@ void comm_publish_meas_data(float *sdata) {
     sprintf(st_year, "%d", tm->tm_year + 1900);
     sprintf(st_time, "%s%s%s%s%s", st_year, st_mon, st_day, st_hour, st_min);
 
-#if CLOUD_DEBUG == 1
-    sprintf(pub_msg, "{\"ch1\": \"%s\"}", st_ch4);
-#elif CLOUD_DEBUG == 2
-    sprintf(st_ch1, "%s@%s@%s@%s@%s@%s@%s@%s", st_ch4, st_ch4, st_ch4, st_ch4,
-            st_ch4, st_ch4, st_ch4, st_ch4);
-    sprintf(pub_msg,
-            "{\"id\":\"rx01\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\","
-            "\"ch4\":\"%s\"}",
-            st_ch1, st_ch1, st_ch4, st_ch4);
-#elif CLOUD_DEBUG == 3
-    sprintf(pub_msg,
-            "{\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\",\"ch4\":\"%s\"}",
-            st_ch4, st_ch4, st_ch4, st_ch4);
-#elif CLOUD_DEBUG == 4
-    sprintf(pub_msg,
-            "{\"id\":\"rx02\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\","
-            "\"ch4\":\"%s\",\"time\":\"%s\"}",
-            st_ch4, st_ch4, st_ch4, st_ch4, st_time);
-#else
     sprintf(pub_msg,
             "{\"id\":\"rx02\",\"ch1\":\"%s\",\"ch2\":\"%s\",\"ch3\":\"%s\","
             "\"ch4\":\"%s\",\"time\":\"%s\"}",
             st_rain, st_ch2, st_ch3, st_ch4, st_time);
-#endif
     break;
   }
 
@@ -3108,6 +3171,27 @@ void get_topic_from_url(String req_str) {
   }
 }
 
+void get_pulse_from_url(String req_str) {
+  int16_t idx_pulse = req_str.indexOf("pulse_weight=");
+  if (idx_pulse > 0) {
+    int16_t idx_submit = req_str.indexOf("&pulse_submit");
+    String s_pulse = "";
+    if (idx_submit > idx_pulse) {
+      s_pulse = req_str.substring(idx_pulse + 13, idx_submit);
+    } else {
+      s_pulse = req_str.substring(idx_pulse + 13);
+    }
+    s_pulse = format_pass(&s_pulse);
+    s_pulse.trim();
+    float p = s_pulse.toFloat();
+    if (p > 0.0f) {
+      PARA.pulse_weight = p;
+      eeprom_write();
+      Serial.printf("Pulse Weight Setting saved: %.1f mm\n", PARA.pulse_weight);
+    }
+  }
+}
+
 void favicon_response() {
   while (client.available())
     client.read();
@@ -3306,6 +3390,19 @@ void wifi_access_point() {
           client.print(PARA.host_ip.c_str());
           delay(10);
           client.stop();
+        } else if (req_str.indexOf("GET /pulse_set/?") >= 0) {
+          pre_url = "GET /";
+          get_pulse_from_url(req_str);
+          client.print(html_res_head);
+          client.print(str_rex_rain);
+          delay(10);
+          client.stop();
+          req_str = "";
+        } else if (req_str.indexOf("GET /disp_pulse_param") >= 0) {
+          client.print(html_res_head2);
+          client.print(String(PARA.pulse_weight, 1).c_str());
+          delay(10);
+          client.stop();
         } else if (req_str.indexOf("GET /f1c9t?") >= 0) {
           pre_url = "GET /f1c9t";
           int16_t idx0 = req_str.indexOf("model_no=");
@@ -3393,12 +3490,12 @@ void wifi_access_point() {
 // 起動時情報表示
 // -----------------------------------------------------------------------------
 void disp_info(void) {
-  Serial.println("\n================================");
-#ifdef VST100
-  Serial.println("VST-100 (Unified 1-Chip 1-CPU)");
-#else
-  Serial.println("VST-01 (Unified 1-Chip 1-CPU)");
-#endif
+  //   Serial.println("\n================================");
+  // #ifdef VST100
+  //   Serial.println("VST-100 (Unified 1-Chip 1-CPU)");
+  // #else
+  //   Serial.println("VST-01 (Unified 1-Chip 1-CPU)");
+  // #endif
 
   update_client_id();
   Serial.printf("ESP32 HARDWARE MAC: %s\n", get_hardware_mac().c_str());
