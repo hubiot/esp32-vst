@@ -312,7 +312,7 @@ const char *str_calibration = R"rawliteral(
 
       <div class="nav-group">
         <a href="/" class="btn btn-secondary">Home</a>
-        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -362,6 +362,17 @@ const char *str_calibration = R"rawliteral(
       disp_trans_param();
       ch_ls_param();
     };
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -473,7 +484,7 @@ const char *str_client_id_set = R"rawliteral(
 
       <div class="nav-group">
         <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
-        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -497,6 +508,17 @@ const char *str_client_id_set = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_client_id_param;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -608,7 +630,7 @@ const char *str_topic_set = R"rawliteral(
 
       <div class="nav-group">
         <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
-        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -633,6 +655,17 @@ const char *str_topic_set = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_topic_param;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -764,7 +797,7 @@ const char *str_factory = R"rawliteral(
 
       <div class="nav-group">
         <a href='/' class="btn-home">通常画面へ戻る (Home)</a>
-        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -784,6 +817,17 @@ const char *str_factory = R"rawliteral(
       xhr.send(null);
     }
     window.onload = factory_param;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -876,7 +920,7 @@ const char *str_rex_noise_shake = R"rawliteral(
       <div class="nav-group">
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
-        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -898,6 +942,17 @@ const char *str_rex_noise_shake = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_ave_normal;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -1010,10 +1065,23 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
       <div class="nav-group">
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
-        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
+  <script>
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
+  </script>
 </html>)rawliteral";
 
 const char *str_rex_rain = R"rawliteral(
@@ -1127,7 +1195,7 @@ const char *str_rex_rain = R"rawliteral(
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/shreshold_set/" class="btn btn-secondary">📊 しきい値 (Shreshold) 設定</a>
-        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1145,6 +1213,17 @@ const char *str_rex_rain = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_pulse_param;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -1238,7 +1317,7 @@ const char *str_normal_4ch_cloud = R"rawliteral(
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/ave_normal_set/" class="btn btn-secondary">📈 平均 / 瞬時値 設定</a>
-        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1260,6 +1339,17 @@ const char *str_normal_4ch_cloud = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_ave_normal;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -1354,7 +1444,7 @@ const char *str_normal_4ch_local = R"rawliteral(
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/meas_period_set/" class="btn btn-secondary">⏱️ 測定周期 設定</a>
         <a href="/host_ip_set/" class="btn btn-secondary">🌐 サーバ IP 設定</a>
-        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1376,6 +1466,17 @@ const char *str_normal_4ch_local = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_ave_normal;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -1441,7 +1542,7 @@ const char *str_host_ip = R"rawliteral(
       </div>
       <div class="nav-group">
         <a href='/' class="btn-home">Home</a>
-        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1459,6 +1560,17 @@ const char *str_host_ip = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_host_ip;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -1549,7 +1661,7 @@ const char *str_meas_period = R"rawliteral(
 
       <div class="nav-group">
         <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
-        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1566,6 +1678,17 @@ const char *str_meas_period = R"rawliteral(
       xhr.send(null);
     }
     setInterval(disp_meas_period, 1000);
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -1656,7 +1779,7 @@ const char *str_shreshold = R"rawliteral(
 
       <div class="nav-group">
         <a href='/' class="btn-home">Home</a>
-        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1673,6 +1796,17 @@ const char *str_shreshold = R"rawliteral(
       xhr.send(null);
     }
     setInterval(disp_shreshold, 1000);
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -1780,7 +1914,7 @@ const char *str_ave_normal = R"rawliteral(
 
       <div class="nav-group">
         <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
-        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+        <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1803,6 +1937,17 @@ const char *str_ave_normal = R"rawliteral(
       xhr.send(null);
     }
     window.onload = disp_ave_normal;
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
   </script>
 </html>)rawliteral";
 
@@ -1980,6 +2125,17 @@ String html_tag2 =
     "      } else {\r\n"
     "        p.type = 'password';\r\n"
     "        b.innerHTML = '👁️ 表示';\r\n"
+    "      }\r\n"
+    "    }\r\n"
+    "    function confirmReset() {\r\n"
+    "      var m = document.getElementById('resetModal');\r\n"
+    "      if (!m) {\r\n"
+    "        m = document.createElement('div');\r\n"
+    "        m.id = 'resetModal';\r\n"
+    "        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';\r\n"
+    "        m.onclick = function(e) { if (e.target === m) m.remove(); };\r\n"
+    "        m.innerHTML = '<div style=\"background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;\"><div style=\"font-size:36px;margin-bottom:6px;\">🔄</div><div style=\"font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;\">本体リセット確認</div><div style=\"font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;\">本体を再起動（リセット）しますか？</div><div style=\"display:flex;gap:10px;\"><button type=\"button\" onclick=\"document.getElementById(\\'resetModal\\').remove()\" style=\"flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;\">キャンセル</button><a href=\"/unit_reset\" style=\"flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;\">再起動</a></div></div>';\r\n"
+    "        document.body.appendChild(m);\r\n"
     "      }\r\n"
     "    }\r\n"
     "  </script>\r\n"
@@ -2959,9 +3115,7 @@ String HTML_Select_Box_str(String Sel_Ssid) {
   str += "</div>\r\n";
   str += "<div class='nav-group'>\r\n";
   str += "  <a href='/' class='btn-home'>Home</a>\r\n";
-  str += "  <a href='/unit_reset' class='btn-reset' onclick=\"return "
-         "confirm('本体を再起動（リセット）しますか？');\">🔄 "
-         "本体リセット</a>\r\n";
+  str += "  <a href='#' class='btn-reset' onclick='confirmReset(); return false;'>🔄 本体リセット</a>\r\n";
   str += "</div>\r\n";
   return str;
 }
