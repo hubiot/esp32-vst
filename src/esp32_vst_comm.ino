@@ -4,14 +4,14 @@
 // の統合
 // =============================================================================
 
-// 1:騒音・振動デバッグ用 0:通常動作
-#define NOISE_VIB_DEBUG 0
-// #define CLOUD_DEBUG 0 // クラウドデバッグ用 通常動作時は0をセット
 // 0:通常動作
-// 1:RFT-01クラウドデバッグ用  ch1のデータをCH4で代用
-// 2:VST-01 騒音振動番チェック すべてのデータをCH4で代用
-// 3:ノーマル4chチェック       すべてのデータをCH4で代用
-// 4:VST-100 雨量計版チェック  すべてのデータをCH4で代用
+// 1:騒音・振動デバッグ用(インクリメント)
+// 2:騒音・振動デバッグ用(固定シード乱数1〜3000)
+#define NOISE_VIB_DEBUG 0
+// 1（インクリメント 1〜6000）での期待値:
+// {"id":"rx01","ch1":"2850.50@2700.50@1500.50@300.50@150.50@0.50@3000.00@2971.85","ch2":"2850.50@2700.50@1500.50@300.50@150.50@0.50@3000.00@2971.85","ch3":"1500.25","ch4":"1500.25"}
+// 2（固定シード乱数 1〜3000）での期待値:
+// {"id":"rx01","ch1":"2856.00@2710.00@1533.00@308.00@157.00@1.00@3000.00@2972.45","ch2":"2856.00@2710.00@1533.00@308.00@157.00@1.00@3000.00@2972.45","ch3":"1524.66","ch4":"1524.66"}
 
 #include "aws.h" // AWS証明書
 #include "esp_sntp.h"
@@ -56,7 +56,8 @@ struct para_d {
   String host_ip;           // host ip (Local Server用)
   float shreshold;          // スレッシュホールド (雨量警報用)
   unsigned int meas_period; // 測定・通信周期(秒)
-  int use_custom_client_id; // 0: ESP32 Hardware MAC, 1: Custom Specified Client ID
+  int use_custom_client_id; // 0: ESP32 Hardware MAC, 1: Custom Specified Client
+                            // ID
   String custom_client_id;  // 指定したカスタムClient ID
   String pub_topic;         // MQTT Publish Topic ("pub_prod", "pub01" 等)
   float pulse_weight;       // 1パルスあたりの雨量(mm), デフォルト 0.5
@@ -147,8 +148,13 @@ int PRE_RAW_MD[4]; // エラー時代替用前回値
 #if NOISE_VIB_DEBUG == 1
 int debug_raw_val = 1; // 1から6000へカウントアップ (完全逆順ストレステスト)
 #endif
-// L5=2850.50, L10=2700.50, L50=1500.50, L90=300.50, L95=150.50
-// MIN=0.50, MAX=3000.00, LEQ=2971.85
+// [DEBUG 1 期待値] (1〜6000 カウントアップ, val/2):
+// L5=2850.50, L10=2700.50, L50=1500.50, L90=300.50, L95=150.50, MIN=0.50,
+// MAX=3000.00, LEQ=2971.85 [DEBUG 2 期待値] (1〜3000 固定乱数, srand=12345):
+// 起動時に disp_info() より
+// 6000サンプルのシミュレーション結果がシリアル出力されます 理論値: AVE≈1500.5,
+// L5≈2850.5, L10≈2700.5, L50≈1500.5, L90≈300.5, L95≈150.5, MIN≈1.0, MAX≈3000.0,
+// LEQ≈2962〜2970
 unsigned int md_max[4], md_min[4];
 unsigned long md_sum[4];
 uint16_t SORT_DATA[2][6000]; // 騒音・振動パーセンタイル計算用ソートバッファ
@@ -246,6 +252,15 @@ const char *str_calibration = R"rawliteral(
       .btn-secondary:hover {
         background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px);
       }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover {
+        background: #fecaca; border-color: #f87171; transform: translateY(-1px);
+      }
     </style>
   </head>
   <body>
@@ -297,6 +312,7 @@ const char *str_calibration = R"rawliteral(
 
       <div class="nav-group">
         <a href="/" class="btn btn-secondary">Home</a>
+        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -410,6 +426,14 @@ const char *str_client_id_set = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -447,7 +471,10 @@ const char *str_client_id_set = R"rawliteral(
         </form>
       </div>
 
-      <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+      <div class="nav-group">
+        <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+      </div>
     </div>
   </body>
   <script>
@@ -534,6 +561,14 @@ const char *str_topic_set = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -571,7 +606,10 @@ const char *str_topic_set = R"rawliteral(
         </form>
       </div>
 
-      <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+      <div class="nav-group">
+        <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+      </div>
     </div>
   </body>
   <script>
@@ -661,11 +699,19 @@ const char *str_factory = R"rawliteral(
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
         text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.04); margin-top: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-home:hover {
         background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px);
       }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -716,7 +762,10 @@ const char *str_factory = R"rawliteral(
         </div>
       </div>
 
-      <a href='/' class="btn-home">通常画面へ戻る (Home)</a>
+      <div class="nav-group">
+        <a href='/' class="btn-home">通常画面へ戻る (Home)</a>
+        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+      </div>
     </div>
   </body>
   <script>
@@ -789,6 +838,13 @@ const char *str_rex_noise_shake = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.03);
       }
       .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -820,6 +876,7 @@ const char *str_rex_noise_shake = R"rawliteral(
       <div class="nav-group">
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -911,6 +968,13 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
       .btn-secondary:hover {
         background: #f8fafc; border-color: #94a3b8; transform: translateY(-2px);
       }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-2px); }
     </style>
   </head>
   <body>
@@ -931,11 +995,11 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
           </div>
           <div class="ch-item">
             <div class="ch-badge">CH 3</div>
-            <div class="ch-name">10分平均</div>
+            <div class="ch-name">平均</div>
           </div>
           <div class="ch-item">
             <div class="ch-badge">CH 4</div>
-            <div class="ch-name">10分平均</div>
+            <div class="ch-name">平均</div>
           </div>
         </div>
         <div class="period-banner">
@@ -946,6 +1010,7 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
       <div class="nav-group">
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1008,6 +1073,13 @@ const char *str_rex_rain = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.03);
       }
       .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -1023,15 +1095,15 @@ const char *str_rex_rain = R"rawliteral(
           </div>
           <div class="ch-item">
             <div class="ch-badge">CH 2</div>
-            <div class="ch-name" id="mode_ch2">平均</div>
+            <div class="ch-name">平均</div>
           </div>
           <div class="ch-item">
             <div class="ch-badge">CH 3</div>
-            <div class="ch-name" id="mode_ch3">平均</div>
+            <div class="ch-name">平均</div>
           </div>
           <div class="ch-item">
             <div class="ch-badge">CH 4</div>
-            <div class="ch-name" id="mode_ch4">平均</div>
+            <div class="ch-name">平均</div>
           </div>
         </div>
         <div class="period-banner">
@@ -1054,27 +1126,12 @@ const char *str_rex_rain = R"rawliteral(
       <div class="nav-group">
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
-        <a href="/shreshold_set/" class="btn btn-secondary">📊 閾値 (Shreshold) 設定</a>
+        <a href="/shreshold_set/" class="btn btn-secondary">📊 しきい値 (Shreshold) 設定</a>
+        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
       </div>
     </div>
   </body>
   <script>
-    var disp_ave_normal = function () {
-      var xhr = new XMLHttpRequest();
-      xhr.onreadystatechange = function() {
-        if (this.readyState == 4 && this.status == 200) {
-          let cmd = this.responseText.split(',');
-          for (let i = 1; i <= 3; i++) {
-            let el = document.getElementById("mode_ch" + (i + 1));
-            if (el) {
-              el.innerText = (cmd[i] === "1") ? "瞬時値" : "平均";
-            }
-          }
-        }
-      };
-      xhr.open("GET", "/disp_ave_normal", true);
-      xhr.send(null);
-    }
     var disp_pulse_param = function () {
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function() {
@@ -1087,10 +1144,7 @@ const char *str_rex_rain = R"rawliteral(
       xhr.open("GET", "/disp_pulse_param", true);
       xhr.send(null);
     }
-    window.onload = function() {
-      disp_ave_normal();
-      disp_pulse_param();
-    };
+    window.onload = disp_pulse_param;
   </script>
 </html>)rawliteral";
 
@@ -1145,6 +1199,13 @@ const char *str_normal_4ch_cloud = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.03);
       }
       .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -1177,6 +1238,7 @@ const char *str_normal_4ch_cloud = R"rawliteral(
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/ave_normal_set/" class="btn btn-secondary">📈 平均 / 瞬時値 設定</a>
+        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1252,6 +1314,13 @@ const char *str_normal_4ch_local = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.03);
       }
       .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -1285,6 +1354,7 @@ const char *str_normal_4ch_local = R"rawliteral(
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/meas_period_set/" class="btn btn-secondary">⏱️ 測定周期 設定</a>
         <a href="/host_ip_set/" class="btn btn-secondary">🌐 サーバ IP 設定</a>
+        <a href="/unit_reset" class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
       </div>
     </div>
   </body>
@@ -1315,27 +1385,65 @@ const char *str_host_ip = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Server IP 設定 - VST</title>
     <style>
-      html { font-family: Helvetica; display: inline-block; margin: 0px auto;text-align: center;} 
-      h1 {font-size:28px;}
-      body {text-align: center;} 
-      table { border-collapse: collapse; margin-left:auto; margin-right:auto;}
-      th { padding: 12px; background-color: #0000cd; color: white; border: solid 2px #c0c0c0;}
-      tr { border: solid 2px #c0c0c0; padding: 12px;}
-      td { border: solid 2px #c0c0c0; padding: 12px;}
-      .value { color:blue; font-weight: bold; padding: 1px;}
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9; margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container { width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box; }
+      .main-title { font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0; }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title { font-size: 14px; font-weight: 700; color: #475569; margin-bottom: 12px; }
+      input[type=text] {
+        width: 100%; padding: 12px 14px; border: 1.5px solid #cbd5e1; border-radius: 10px;
+        font-size: 15px; color: #1e293b; background: #ffffff; box-sizing: border-box; margin: 8px 0 16px 0;
+      }
+      input[type=text]:focus { outline: none; border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15); }
+      .btn-submit {
+        width: 100%; padding: 14px 20px; border: none; border-radius: 12px;
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; font-size: 16px; font-weight: 700; cursor: pointer;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: all 0.2s ease;
+      }
+      .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn-home {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
-    <h1>Server IP Setting</h1>
-    <form>
-      <label>Server IP</label>
-      <input type='text' name='host_ip_param' id='host_ip_param1' value="">
-      <br><br>
-      <button type='submit' name='host_ip_para_submit' value='send' style='background-color:#AFA;'>Set</button>
-    </form>
-    <br><br>
-    <a href='/' style='color:navy; font-size:20px;'>Home</a>
+    <div class="container">
+      <div class="main-title">Server IP 設定</div>
+      <div class="card">
+        <div class="card-title">Server IP アドレス入力</div>
+        <form action='/host_ip_set/' method='GET'>
+          <input type='text' name='host_ip_param' id='host_ip_param1' placeholder='例: 192.168.1.100'>
+          <button type='submit' name='host_ip_para_submit' value='send' class="btn-submit">設定を保存</button>
+        </form>
+      </div>
+      <div class="nav-group">
+        <a href='/' class="btn-home">Home</a>
+        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+      </div>
+    </div>
   </body>
   <script>
     var disp_host_ip = function () {
@@ -1409,6 +1517,14 @@ const char *str_meas_period = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -1431,7 +1547,10 @@ const char *str_meas_period = R"rawliteral(
         </form>
       </div>
 
-      <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+      <div class="nav-group">
+        <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+      </div>
     </div>
   </body>
   <script>
@@ -1505,6 +1624,14 @@ const char *str_shreshold = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -1527,7 +1654,10 @@ const char *str_shreshold = R"rawliteral(
         </form>
       </div>
 
-      <a href='/' class="btn-home">Home</a>
+      <div class="nav-group">
+        <a href='/' class="btn-home">Home</a>
+        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+      </div>
     </div>
   </body>
   <script>
@@ -1599,6 +1729,14 @@ const char *str_ave_normal = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover { background: #fecaca; border-color: #f87171; transform: translateY(-1px); }
     </style>
   </head>
   <body>
@@ -1640,7 +1778,10 @@ const char *str_ave_normal = R"rawliteral(
         </form>
       </div>
 
-      <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+      <div class="nav-group">
+        <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+        <a href='/unit_reset' class="btn-reset" onclick="return confirm('本体を再起動（リセット）しますか？');">🔄 本体リセット</a>
+      </div>
     </div>
   </body>
   <script>
@@ -1774,6 +1915,17 @@ String html_tag1 =
     "    box-shadow: 0 2px 4px rgba(0,0,0,0.04);\r\n"
     "  }\r\n"
     "  .btn-home:hover { background: #f8fafc; border-color: #94a3b8; "
+    "transform: translateY(-1px); }\r\n"
+    "  .btn-reset {\r\n"
+    "    display: block; text-decoration: none; padding: 14px 20px; "
+    "border-radius: 12px;\r\n"
+    "    font-size: 15px; font-weight: 700; transition: all 0.2s ease; "
+    "box-sizing: border-box;\r\n"
+    "    text-align: center; background: #fee2e2; color: #dc2626; border: "
+    "1.5px solid #fca5a5;\r\n"
+    "    box-shadow: 0 2px 4px rgba(0,0,0,0.04);\r\n"
+    "  }\r\n"
+    "  .btn-reset:hover { background: #fecaca; border-color: #f87171; "
     "transform: translateY(-1px); }\r\n"
     "</style>\r\n"
     "</head>\r\n"
@@ -2000,7 +2152,8 @@ void eeprom_write(void) {
   }
 
   cfg.use_custom_client_id = PARA.use_custom_client_id;
-  strncpy(cfg.custom_client_id, PARA.custom_client_id.c_str(), sizeof(cfg.custom_client_id) - 1);
+  strncpy(cfg.custom_client_id, PARA.custom_client_id.c_str(),
+          sizeof(cfg.custom_client_id) - 1);
   strncpy(cfg.pub_topic, PARA.pub_topic.c_str(), sizeof(cfg.pub_topic) - 1);
   cfg.pulse_weight = PARA.pulse_weight;
 
@@ -2177,6 +2330,8 @@ float md_trans(float val, trans_para *para) {
 #if NOISE_VIB_DEBUG == 1
   return val / 2.0f; // 半分にした値 (最大3000)
                      // を返し、Leqの浮動小数点オーバーフローを防止
+#elif NOISE_VIB_DEBUG == 2
+  return val; // 1〜3000の乱数値をそのまま使用
 #else
   if ((para->meas_large - para->meas_small) == 0) {
     return val;
@@ -2196,6 +2351,12 @@ void read_mcp3424(void) {
     PRE_RAW_MD[ch_num] = RAW_MD[ch_num];
   }
   debug_raw_val++;
+#elif NOISE_VIB_DEBUG == 2
+  int r_val = 1 + (rand() % 3000); // 1〜3000の乱数
+  for (int ch_num = 0; ch_num < 4; ch_num++) {
+    RAW_MD[ch_num] = r_val;
+    PRE_RAW_MD[ch_num] = RAW_MD[ch_num];
+  }
 #else
   int ch_num, val[3];
   static int adc_conv_time = 6;
@@ -2301,6 +2462,8 @@ void meas_adc_sample_step(void) {
         }
 #if NOISE_VIB_DEBUG == 1
         debug_raw_val = 1;
+#elif NOISE_VIB_DEBUG == 2
+        srand(12345);
 #endif
       } else {
         int sample_count = MCNT + 1;
@@ -2380,6 +2543,8 @@ void meas_adc_sample_step(void) {
 #if NOISE_VIB_DEBUG == 1
       debug_raw_val =
           1; // ループカウンタがリセットされるタイミングで初期値を1に再設定
+#elif NOISE_VIB_DEBUG == 2
+      srand(12345); // 毎回の測定サイクルで同じ乱数系列を再現
 #endif
     } else {
       MCNT++;
@@ -2394,6 +2559,9 @@ void measurement_task(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms基準ティック
   int tick_10ms_count = 0;
+#if NOISE_VIB_DEBUG == 2
+  srand(12345);
+#endif
 
   while (1) {
     // 累積ドリフトなしの厳密な10ms周期ウェイクアップ
@@ -2791,6 +2959,9 @@ String HTML_Select_Box_str(String Sel_Ssid) {
   str += "</div>\r\n";
   str += "<div class='nav-group'>\r\n";
   str += "  <a href='/' class='btn-home'>Home</a>\r\n";
+  str += "  <a href='/unit_reset' class='btn-reset' onclick=\"return "
+         "confirm('本体を再起動（リセット）しますか？');\">🔄 "
+         "本体リセット</a>\r\n";
   str += "</div>\r\n";
   return str;
 }
@@ -3189,9 +3360,10 @@ void get_client_id_from_url(String req_str) {
       PARA.custom_client_id = s_id;
       update_client_id();
       eeprom_write();
-      Serial.printf(
-          "Client ID Setting saved: use_custom=%d, custom_client_id=%s, CLIENT_ID=%s\n",
-          PARA.use_custom_client_id, PARA.custom_client_id.c_str(), CLIENT_ID.c_str());
+      Serial.printf("Client ID Setting saved: use_custom=%d, "
+                    "custom_client_id=%s, CLIENT_ID=%s\n",
+                    PARA.use_custom_client_id, PARA.custom_client_id.c_str(),
+                    CLIENT_ID.c_str());
     }
   }
 }
@@ -3261,7 +3433,45 @@ void wifi_access_point() {
         req_str = client.readStringUntil('\n');
         if (req_str.indexOf("\r") == 0)
           break;
-        else if (req_str.indexOf("GET /wifi_set/?") >= 0) {
+        else if (req_str.indexOf("GET /unit_reset") >= 0 ||
+                 req_str.indexOf("GET /reboot") >= 0) {
+          Serial.println("Reboot requested from Web UI. Restarting ESP32...");
+          client.print(html_res_head);
+          client.print(R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>再起動 - VST</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f1f5f9; margin: 0; padding: 40px 16px; color: #0f172a; text-align: center;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 36px 20px; max-width: 420px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      }
+      .icon { font-size: 48px; margin-bottom: 12px; }
+      h1 { font-size: 22px; font-weight: 800; color: #1e293b; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="icon">🔄</div>
+      <h1>本体を再起動しました</h1>
+    </div>
+  </body>
+</html>
+)rawliteral");
+          client.flush();
+          delay(100);
+          client.stop();
+          delay(500);
+          esp_restart();
+          req_str = "";
+        } else if (req_str.indexOf("GET /wifi_set/?") >= 0) {
           pre_url = "GET /wifi_set";
           wifi_set_submit(req_str);
           req_str = "";
@@ -3293,8 +3503,9 @@ void wifi_access_point() {
           req_str = "";
         } else if (req_str.indexOf("GET /disp_client_id_param") >= 0) {
           client.print(html_res_head2);
-          String stmp = String(PARA.use_custom_client_id) + "," + PARA.custom_client_id +
-                        "," + get_hardware_mac() + "," + CLIENT_ID;
+          String stmp = String(PARA.use_custom_client_id) + "," +
+                        PARA.custom_client_id + "," + get_hardware_mac() + "," +
+                        CLIENT_ID;
           client.print(stmp.c_str());
           delay(10);
           client.stop();
