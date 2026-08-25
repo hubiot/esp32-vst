@@ -56,8 +56,8 @@ struct para_d {
   String host_ip;           // host ip (Local Server用)
   float shreshold;          // スレッシュホールド (雨量警報用)
   unsigned int meas_period; // 測定・通信周期(秒)
-  int use_custom_mac;       // 0: ESP32 Hardware MAC, 1: Custom Specified MAC
-  String custom_mac;        // 指定したMACアドレス
+  int use_custom_client_id; // 0: ESP32 Hardware MAC, 1: Custom Specified Client ID
+  String custom_client_id;  // 指定したカスタムClient ID
   String pub_topic;         // MQTT Publish Topic ("pub_prod", "pub01" 等)
   float pulse_weight;       // 1パルスあたりの雨量(mm), デフォルト 0.5
 };
@@ -71,8 +71,8 @@ struct UnifiedEepromSettings {
   float shreshold;
   unsigned int meas_period;
   trans_para t_para[4];
-  int use_custom_mac;
-  char custom_mac[32];
+  int use_custom_client_id;
+  char custom_client_id[32];
   char pub_topic[32];
   float pulse_weight;
 };
@@ -349,13 +349,13 @@ const char *str_calibration = R"rawliteral(
   </script>
 </html>)rawliteral";
 
-const char *str_mac_set = R"rawliteral(
+const char *str_client_id_set = R"rawliteral(
 <!DOCTYPE HTML>
 <html>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MAC Address 設定 - VST</title>
+    <title>Client ID 設定 - VST</title>
     <style>
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -414,36 +414,36 @@ const char *str_mac_set = R"rawliteral(
   </head>
   <body>
     <div class="container">
-      <div class="main-title">MAC Address 設定</div>
+      <div class="main-title">Client ID 設定</div>
 
       <div class="card">
         <div class="card-title">現在のステータス</div>
         <div class="info-row">
-          <span class="info-label">現在の CLIENT_ID:</span>
+          <span class="info-label">現在の Client ID (DEVICE_ID):</span>
           <span id="current_client_id" class="info-value">-</span>
         </div>
         <div class="info-row">
-          <span class="info-label">ESP32 内蔵 MAC:</span>
+          <span class="info-label">ESP32 内蔵 MAC アドレス:</span>
           <span id="hw_mac" class="info-value">-</span>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title">MAC Address 選択・指定</div>
-        <form action='/mac_set/' method='GET'>
+        <div class="card-title">Client ID 選択・指定</div>
+        <form action='/client_id_set/' method='GET'>
           <div class="radio-group">
             <label class="radio-label">
-              <input type="radio" name="use_custom_mac" value="0" id="mac_opt_hw">
-              ESP32 MACアドレスを使用 (Auto)
+              <input type="radio" name="use_custom_client_id" value="0" id="opt_hw_mac">
+              ESP32 MACアドレスをClient IDとして使用 (Auto)
             </label>
             <label class="radio-label">
-              <input type="radio" name="use_custom_mac" value="1" id="mac_opt_custom">
-              指定したMACアドレスを使用 (Custom)
+              <input type="radio" name="use_custom_client_id" value="1" id="opt_custom_id">
+              指定したカスタム Client ID を使用 (Custom)
             </label>
           </div>
-          <label style="font-size: 13px; font-weight: 700; color: #475569;">カスタム MAC アドレス:</label>
-          <input type='text' name='custom_mac' id='custom_mac_input' placeholder='例: 24-0a-c4-xx-xx-xx'>
-          <button type='submit' name='mac_submit' value='send' class="btn-submit">設定を保存 (Set)</button>
+          <label style="font-size: 13px; font-weight: 700; color: #475569;">カスタム Client ID:</label>
+          <input type='text' name='custom_client_id' id='custom_client_id_input' placeholder='例: 24-0a-c4-xx-xx-xx または 任意のID'>
+          <button type='submit' name='client_id_submit' value='send' class="btn-submit">設定を保存</button>
         </form>
       </div>
 
@@ -451,25 +451,25 @@ const char *str_mac_set = R"rawliteral(
     </div>
   </body>
   <script>
-    var disp_mac_param = function () {
+    var disp_client_id_param = function () {
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function() {
         if (this.readyState == 4 && this.status == 200) {
           let val = this.responseText.split(',');
           if (val[0] === "1") {
-            document.getElementById("mac_opt_custom").checked = true;
+            document.getElementById("opt_custom_id").checked = true;
           } else {
-            document.getElementById("mac_opt_hw").checked = true;
+            document.getElementById("opt_hw_mac").checked = true;
           }
-          document.getElementById("custom_mac_input").value = val[1] || "";
+          document.getElementById("custom_client_id_input").value = val[1] || "";
           document.getElementById("hw_mac").innerHTML = val[2] || "";
           document.getElementById("current_client_id").innerHTML = val[3] || "";
         }
       };
-      xhr.open("GET", "/disp_mac_param", true);
+      xhr.open("GET", "/disp_client_id_param", true);
       xhr.send(null);
     }
-    window.onload = disp_mac_param;
+    window.onload = disp_client_id_param;
   </script>
 </html>)rawliteral";
 
@@ -567,7 +567,7 @@ const char *str_topic_set = R"rawliteral(
           </div>
           <label style="font-size: 13px; font-weight: 700; color: #475569;">Topic 名:</label>
           <input type='text' name='pub_topic' id='custom_topic_input' placeholder='例: pub_prod'>
-          <button type='submit' name='topic_submit' value='send' class="btn-submit">設定を保存 (Set)</button>
+          <button type='submit' name='topic_submit' value='send' class="btn-submit">設定を保存</button>
         </form>
       </div>
 
@@ -689,8 +689,8 @@ const char *str_factory = R"rawliteral(
       <div class="card">
         <div class="card-title">各種設定メニュー</div>
         <div class="menu-grid">
-          <a href='/mac_set/' class="menu-item">
-            <span>🏷️ MAC Address 設定</span>
+          <a href='/client_id_set/' class="menu-item">
+            <span>🏷️ Client ID 設定</span>
             <span class="menu-arrow">›</span>
           </a>
           <a href='/topic_set/' class="menu-item">
@@ -1863,7 +1863,7 @@ boolean chk_host_ip(String *str);
 String format_pass(String *pass_tmp);
 String get_hardware_mac(void);
 void update_client_id(void);
-void get_mac_from_url(String req_str);
+void get_client_id_from_url(String req_str);
 void get_topic_from_url(String req_str);
 void get_pulse_from_url(String req_str);
 void IRAM_ATTR resetModule();
@@ -1970,8 +1970,8 @@ String get_hardware_mac(void) {
 
 void update_client_id(void) {
   String hw_mac = get_hardware_mac();
-  if (PARA.use_custom_mac == 1 && PARA.custom_mac.length() > 0) {
-    CLIENT_ID = PARA.custom_mac;
+  if (PARA.use_custom_client_id == 1 && PARA.custom_client_id.length() > 0) {
+    CLIENT_ID = PARA.custom_client_id;
   } else {
     CLIENT_ID = hw_mac;
   }
@@ -1999,8 +1999,8 @@ void eeprom_write(void) {
     cfg.t_para[i] = T_PARA[i];
   }
 
-  cfg.use_custom_mac = PARA.use_custom_mac;
-  strncpy(cfg.custom_mac, PARA.custom_mac.c_str(), sizeof(cfg.custom_mac) - 1);
+  cfg.use_custom_client_id = PARA.use_custom_client_id;
+  strncpy(cfg.custom_client_id, PARA.custom_client_id.c_str(), sizeof(cfg.custom_client_id) - 1);
   strncpy(cfg.pub_topic, PARA.pub_topic.c_str(), sizeof(cfg.pub_topic) - 1);
   cfg.pulse_weight = PARA.pulse_weight;
 
@@ -2033,9 +2033,9 @@ boolean eeprom_read(void) {
       T_PARA[i] = cfg.t_para[i];
     }
 
-    PARA.use_custom_mac = cfg.use_custom_mac;
-    PARA.custom_mac = String(cfg.custom_mac);
-    PARA.custom_mac.trim();
+    PARA.use_custom_client_id = cfg.use_custom_client_id;
+    PARA.custom_client_id = String(cfg.custom_client_id);
+    PARA.custom_client_id.trim();
 
     PARA.pub_topic = String(cfg.pub_topic);
     PARA.pub_topic.trim();
@@ -2070,9 +2070,9 @@ boolean eeprom_read(void) {
       T_PARA[i] = cfg.t_para[i];
     }
 
-    PARA.use_custom_mac = cfg.use_custom_mac;
-    PARA.custom_mac = String(cfg.custom_mac);
-    PARA.custom_mac.trim();
+    PARA.use_custom_client_id = cfg.use_custom_client_id;
+    PARA.custom_client_id = String(cfg.custom_client_id);
+    PARA.custom_client_id.trim();
 
     PARA.pub_topic = String(cfg.pub_topic);
     PARA.pub_topic.trim();
@@ -2105,9 +2105,9 @@ boolean eeprom_read(void) {
       T_PARA[i] = cfg.t_para[i];
     }
 
-    PARA.use_custom_mac = cfg.use_custom_mac;
-    PARA.custom_mac = String(cfg.custom_mac);
-    PARA.custom_mac.trim();
+    PARA.use_custom_client_id = cfg.use_custom_client_id;
+    PARA.custom_client_id = String(cfg.custom_client_id);
+    PARA.custom_client_id.trim();
     PARA.pub_topic = "pub_prod";
     PARA.pulse_weight = 0.5f;
 
@@ -2135,8 +2135,8 @@ boolean eeprom_read(void) {
       T_PARA[i] = cfg.t_para[i];
     }
 
-    PARA.use_custom_mac = 0;
-    PARA.custom_mac = "";
+    PARA.use_custom_client_id = 0;
+    PARA.custom_client_id = "";
     PARA.pub_topic = "pub_prod";
     PARA.pulse_weight = 0.5f;
 
@@ -2153,8 +2153,8 @@ boolean eeprom_read(void) {
     PARA.host_ip = "192.168.11.11";
     PARA.shreshold = 9999.0;
     PARA.meas_period = 600;
-    PARA.use_custom_mac = 0;
-    PARA.custom_mac = "";
+    PARA.use_custom_client_id = 0;
+    PARA.custom_client_id = "";
     PARA.pub_topic = "pub_prod";
     PARA.pulse_weight = 0.5f;
 
@@ -3170,28 +3170,28 @@ void get_meas_period_from_url(String req_str) {
   }
 }
 
-void get_mac_from_url(String req_str) {
-  int16_t idx_mode = req_str.indexOf("use_custom_mac=");
+void get_client_id_from_url(String req_str) {
+  int16_t idx_mode = req_str.indexOf("use_custom_client_id=");
   if (idx_mode > 0) {
-    int16_t idx_custom_mac = req_str.indexOf("&custom_mac=");
-    int16_t idx_submit = req_str.indexOf("&mac_submit");
-    if (idx_custom_mac > 0) {
-      String s_mode = req_str.substring(idx_mode + 15, idx_custom_mac);
-      PARA.use_custom_mac = s_mode.toInt();
-      String s_mac = "";
-      if (idx_submit > idx_custom_mac) {
-        s_mac = req_str.substring(idx_custom_mac + 12, idx_submit);
+    int16_t idx_custom = req_str.indexOf("&custom_client_id=");
+    int16_t idx_submit = req_str.indexOf("&client_id_submit");
+    if (idx_custom > 0) {
+      String s_mode = req_str.substring(idx_mode + 21, idx_custom);
+      PARA.use_custom_client_id = s_mode.toInt();
+      String s_id = "";
+      if (idx_submit > idx_custom) {
+        s_id = req_str.substring(idx_custom + 18, idx_submit);
       } else {
-        s_mac = req_str.substring(idx_custom_mac + 12);
+        s_id = req_str.substring(idx_custom + 18);
       }
-      s_mac = format_pass(&s_mac);
-      s_mac.trim();
-      PARA.custom_mac = s_mac;
+      s_id = format_pass(&s_id);
+      s_id.trim();
+      PARA.custom_client_id = s_id;
       update_client_id();
       eeprom_write();
       Serial.printf(
-          "MAC Setting saved: use_custom=%d, custom_mac=%s, CLIENT_ID=%s\n",
-          PARA.use_custom_mac, PARA.custom_mac.c_str(), CLIENT_ID.c_str());
+          "Client ID Setting saved: use_custom=%d, custom_client_id=%s, CLIENT_ID=%s\n",
+          PARA.use_custom_client_id, PARA.custom_client_id.c_str(), CLIENT_ID.c_str());
     }
   }
 }
@@ -3276,24 +3276,24 @@ void wifi_access_point() {
           pre_url = "GET /wifi_set";
           wifi_set_proc();
           req_str = "";
-        } else if (req_str.indexOf("GET /mac_set/?") >= 0) {
-          pre_url = "GET /mac_set";
-          get_mac_from_url(req_str);
+        } else if (req_str.indexOf("GET /client_id_set/?") >= 0) {
+          pre_url = "GET /client_id_set";
+          get_client_id_from_url(req_str);
           client.print(html_res_head);
-          client.print(str_mac_set);
+          client.print(str_client_id_set);
           delay(10);
           client.stop();
           req_str = "";
-        } else if (req_str.indexOf("GET /mac_set") >= 0) {
-          pre_url = "GET /mac_set";
+        } else if (req_str.indexOf("GET /client_id_set") >= 0) {
+          pre_url = "GET /client_id_set";
           client.print(html_res_head);
-          client.print(str_mac_set);
+          client.print(str_client_id_set);
           delay(10);
           client.stop();
           req_str = "";
-        } else if (req_str.indexOf("GET /disp_mac_param") >= 0) {
+        } else if (req_str.indexOf("GET /disp_client_id_param") >= 0) {
           client.print(html_res_head2);
-          String stmp = String(PARA.use_custom_mac) + "," + PARA.custom_mac +
+          String stmp = String(PARA.use_custom_client_id) + "," + PARA.custom_client_id +
                         "," + get_hardware_mac() + "," + CLIENT_ID;
           client.print(stmp.c_str());
           delay(10);
@@ -3507,8 +3507,8 @@ void wifi_access_point() {
           req_str = "";
         } else {
           client.print(html_res_head404);
-          if (pre_url.indexOf("GET /mac_set") >= 0)
-            client.print(str_mac_set);
+          if (pre_url.indexOf("GET /client_id_set") >= 0)
+            client.print(str_client_id_set);
           else if (pre_url.indexOf("GET /topic_set") >= 0)
             client.print(str_topic_set);
           else if (pre_url.indexOf("GET /param_set") >= 0)
@@ -3546,8 +3546,8 @@ void disp_info(void) {
 
   update_client_id();
   Serial.printf("ESP32 HARDWARE MAC: %s\n", get_hardware_mac().c_str());
-  if (PARA.use_custom_mac == 1 && PARA.custom_mac.length() > 0) {
-    Serial.printf("CLIENT_ID (Custom MAC): %s\n", CLIENT_ID.c_str());
+  if (PARA.use_custom_client_id == 1 && PARA.custom_client_id.length() > 0) {
+    Serial.printf("CLIENT_ID (Custom): %s\n", CLIENT_ID.c_str());
   } else {
     Serial.printf("CLIENT_ID (Hardware MAC): %s\n", CLIENT_ID.c_str());
   }
