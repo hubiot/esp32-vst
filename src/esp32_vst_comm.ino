@@ -1,5 +1,5 @@
 // =============================================================================
-// VST-01 / VST-100 統合ファームウェア (1-Chip / 1-CPU版)
+// VST-01 / VST-100 統合ファームウェア (1Chip 版)
 // 測定(MCP3424 / 雨量計 / 統計計算) と 通信(WiFi / SoftAP / AWS IoT MQTT)
 // の統合
 // =============================================================================
@@ -3429,6 +3429,16 @@ void wifi_access_point() {
   if (client) {
     String req_str = "";
     while (client.connected()) {
+      if (digitalRead(XAP_BTN) == LOW) {
+        delay(30);
+        if (digitalRead(XAP_BTN) == LOW) {
+          Serial.println(
+              "AP button pressed in SoftAP Mode! Resetting ESP32...");
+          digitalWrite(STATUS_LED, LOW);
+          delay(200);
+          esp_restart();
+        }
+      }
       while (client.available()) {
         req_str = client.readStringUntil('\n');
         if (req_str.indexOf("\r") == 0)
@@ -3955,14 +3965,23 @@ void loop() {
     Serial2.write(c);
   }
 
-  // APボタンのチャタリング防止＆エッジ検出 (40ms確定)
-  if (check_ap_button_pressed()) {
-    if (AP_MODE == false) {
+  // APモード時: ボタン押下で即座に本体リセット
+  if (AP_MODE) {
+    if (digitalRead(XAP_BTN) == LOW) {
+      delay(30);
+      if (digitalRead(XAP_BTN) == LOW) {
+        Serial.println("AP button pressed in SoftAP Mode! Resetting ESP32...");
+        digitalWrite(STATUS_LED, LOW);
+        delay(200);
+        esp_restart();
+      }
+    }
+  } else {
+    // 通常モード時: APボタンのチャタリング防止＆エッジ検出 (40ms確定)
+    // でSoftAPへ切替
+    if (check_ap_button_pressed()) {
       Serial.println("AP button pressed! Switching to SoftAP Mode...");
       start_ap_mode();
-    } else {
-      Serial.println("AP button pressed! Switching to Normal Mode...");
-      start_normal_mode();
     }
   }
 
