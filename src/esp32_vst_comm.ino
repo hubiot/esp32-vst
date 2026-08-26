@@ -324,16 +324,237 @@ const char *str_calibration = R"rawliteral(
           let val = this.responseText.split(',');
           document.getElementById("val_ch1").innerHTML = val[0];
           document.getElementById("pl_ch1").innerHTML = val[1];
-          document.getElementById("ps_ch1").innerHTML = val[2];
-          document.getElementById("val_ch2").innerHTML = val[3];
-          document.getElementById("pl_ch2").innerHTML = val[4];
-          document.getElementById("ps_ch2").innerHTML = val[5];
-          document.getElementById("val_ch3").innerHTML = val[6];
-          document.getElementById("pl_ch3").innerHTML = val[7];
-          document.getElementById("ps_ch3").innerHTML = val[8];
-          document.getElementById("val_ch4").innerHTML = val[9];
-          document.getElementById("pl_ch4").innerHTML = val[10];
-          document.getElementById("ps_ch4").innerHTML = val[11];
+          document.getElementById("ps_ch1").innerHTML = val[3];
+          document.getElementById("val_ch2").innerHTML = val[5];
+          document.getElementById("pl_ch2").innerHTML = val[6];
+          document.getElementById("ps_ch2").innerHTML = val[8];
+          document.getElementById("val_ch3").innerHTML = val[10];
+          document.getElementById("pl_ch3").innerHTML = val[11];
+          document.getElementById("ps_ch3").innerHTML = val[13];
+          document.getElementById("val_ch4").innerHTML = val[15];
+          document.getElementById("pl_ch4").innerHTML = val[16];
+          document.getElementById("ps_ch4").innerHTML = val[18];
+        }
+      };
+      xhr.open("GET", "/disp_trans_param", true);
+      xhr.send(null);
+    }
+    var ch_ls_param = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let cmd = this.responseText.split(',');
+          let elements = document.getElementsByName('channel_number');
+          if (elements.length > 0 && Number(cmd[0]) >= 1) {
+            elements[0].options[Number(cmd[0])-1].selected = true;
+          }
+          elements = document.getElementsByName('large_small');
+          if (elements.length > 0 && Number(cmd[1]) >= 0) {
+            elements[0].options[Number(cmd[1])].selected = true;
+          }
+        }
+      };
+      xhr.open("GET", "/ch_ls_param", true);
+      xhr.send(null);
+    }
+    setInterval(disp_trans_param, 1000);
+    window.onload = function() {
+      disp_trans_param();
+      ch_ls_param();
+    };
+    function confirmReset() {
+      var m = document.getElementById('resetModal');
+      if (!m) {
+        m = document.createElement('div');
+        m.id = 'resetModal';
+        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;"><div style="font-size:36px;margin-bottom:6px;">🔄</div><div style="font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;">本体リセット確認</div><div style="font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;">本体を再起動（リセット）しますか？</div><div style="display:flex;gap:10px;"><button type="button" onclick="document.getElementById(\'resetModal\').remove()" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;">キャンセル</button><a href="/unit_reset" style="flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;">再起動</a></div></div>';
+        document.body.appendChild(m);
+      }
+    }
+  </script>
+</html>)rawliteral";
+
+const char *str_factory_calibration = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>キャリブレーション (工場設定) - VST</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 680px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #1e1b4b; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 13px; font-weight: 700; color: #475569; margin-bottom: 14px;
+        letter-spacing: 0.5px;
+      }
+      table {
+        width: 100%; border-collapse: collapse; margin-bottom: 6px;
+      }
+      th {
+        padding: 10px 8px; background-color: #f8fafc; color: #475569;
+        font-size: 12px; font-weight: 700; border-bottom: 2px solid #e2e8f0; text-align: center;
+      }
+      td {
+        padding: 12px 8px; border-bottom: 1px solid #f1f5f9; text-align: center;
+        font-size: 14px; color: #334155;
+      }
+      .ch-cell { font-weight: 700; color: #4f46e5; }
+      .value {
+        font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-weight: 700; color: #0284c7; font-size: 15px;
+      }
+      .form-grid {
+        display: grid; grid-template-columns: 1fr 1fr 1.5fr auto; gap: 10px; align-items: center;
+      }
+      @media (max-width: 500px) {
+        .form-grid { grid-template-columns: 1fr 1fr; }
+        .form-grid .full-span { grid-column: span 2; }
+      }
+      select, input[type=text] {
+        width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px;
+        font-size: 14px; color: #1e293b; background: #ffffff; box-sizing: border-box;
+      }
+      select:focus, input[type=text]:focus {
+        outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+      }
+      .btn-set {
+        padding: 10px 20px; border: none; border-radius: 8px;
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: #ffffff; font-size: 14px; font-weight: 700; cursor: pointer;
+        transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+      }
+      .btn-set:hover {
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+        transform: translateY(-1px);
+      }
+      .btn-factory-home {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
+      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .btn {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center;
+      }
+      .btn-secondary {
+        background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-secondary:hover {
+        background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px);
+      }
+      .btn-reset {
+        display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
+        font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      }
+      .btn-reset:hover {
+        background: #fecaca; border-color: #f87171; transform: translateY(-1px);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="main-title">キャリブレーション (工場設定)</div>
+
+      <div class="card">
+        <div class="card-title">測定データ &amp; パラメータ (LARGE / SMALL / ADC)</div>
+        <table>
+          <thead>
+            <tr><th>CH</th><th>測定データ</th><th>LARGE</th><th>ADC</th><th>SMALL</th><th>ADC</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="ch-cell">CH1</td><td><span id="val_ch1" class="value">-</span></td><td><span id="pl_ch1" class="value">-</span></td><td><span id="ml_ch1" class="value">-</span></td><td><span id="ps_ch1" class="value">-</span></td><td><span id="ms_ch1" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH2</td><td><span id="val_ch2" class="value">-</span></td><td><span id="pl_ch2" class="value">-</span></td><td><span id="ml_ch2" class="value">-</span></td><td><span id="ps_ch2" class="value">-</span></td><td><span id="ms_ch2" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH3</td><td><span id="val_ch3" class="value">-</span></td><td><span id="pl_ch3" class="value">-</span></td><td><span id="ml_ch3" class="value">-</span></td><td><span id="ps_ch3" class="value">-</span></td><td><span id="ms_ch3" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH4</td><td><span id="val_ch4" class="value">-</span></td><td><span id="pl_ch4" class="value">-</span></td><td><span id="ml_ch4" class="value">-</span></td><td><span id="ps_ch4" class="value">-</span></td><td><span id="ms_ch4" class="value">-</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">スケーリング パラメータ設定</div>
+        <form name="paremeter_set" action="/factory_param_set/" method="GET">
+          <div class="form-grid">
+            <div>
+              <select name="channel_number">
+                <option value="1">CH1</option>
+                <option value="2">CH2</option>
+                <option value="3">CH3</option>
+                <option value="4">CH4</option>
+              </select>
+            </div>
+            <div>
+              <select name="large_small">
+                <option value="0">LARGE</option>
+                <option value="1">SMALL</option>
+              </select>
+            </div>
+            <div class="full-span">
+              <input type="text" name="conv_param" placeholder="設定値入力">
+            </div>
+            <div class="full-span">
+              <button type="submit" name="param_submit" value="send" class="btn-set">Set</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="nav-group">
+        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
+        <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
+      </div>
+    </div>
+  </body>
+  <script>
+    var disp_trans_param = function () {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          let val = this.responseText.split(',');
+          document.getElementById("val_ch1").innerHTML = val[0];
+          document.getElementById("pl_ch1").innerHTML = val[1];
+          document.getElementById("ml_ch1").innerHTML = val[2];
+          document.getElementById("ps_ch1").innerHTML = val[3];
+          document.getElementById("ms_ch1").innerHTML = val[4];
+          document.getElementById("val_ch2").innerHTML = val[5];
+          document.getElementById("pl_ch2").innerHTML = val[6];
+          document.getElementById("ml_ch2").innerHTML = val[7];
+          document.getElementById("ps_ch2").innerHTML = val[8];
+          document.getElementById("ms_ch2").innerHTML = val[9];
+          document.getElementById("val_ch3").innerHTML = val[10];
+          document.getElementById("pl_ch3").innerHTML = val[11];
+          document.getElementById("ml_ch3").innerHTML = val[12];
+          document.getElementById("ps_ch3").innerHTML = val[13];
+          document.getElementById("ms_ch3").innerHTML = val[14];
+          document.getElementById("val_ch4").innerHTML = val[15];
+          document.getElementById("pl_ch4").innerHTML = val[16];
+          document.getElementById("ml_ch4").innerHTML = val[17];
+          document.getElementById("ps_ch4").innerHTML = val[18];
+          document.getElementById("ms_ch4").innerHTML = val[19];
         }
       };
       xhr.open("GET", "/disp_trans_param", true);
@@ -483,7 +704,7 @@ const char *str_client_id_set = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
         <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -629,7 +850,7 @@ const char *str_topic_set = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
         <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -768,6 +989,10 @@ const char *str_factory = R"rawliteral(
       <div class="card">
         <div class="card-title">各種設定メニュー</div>
         <div class="menu-grid">
+          <a href='/factory_param_set/' class="menu-item">
+            <span>⚙️ キャリブレーション</span>
+            <span class="menu-arrow">›</span>
+          </a>
           <a href='/client_id_set/' class="menu-item">
             <span>🏷️ Client ID 設定</span>
             <span class="menu-arrow">›</span>
@@ -786,10 +1011,6 @@ const char *str_factory = R"rawliteral(
           </a>
           <a href='/wifi_set/' class="menu-item">
             <span>📶 WiFi 設定</span>
-            <span class="menu-arrow">›</span>
-          </a>
-          <a href='/param_set/' class="menu-item">
-            <span>⚙️ キャリブレーション</span>
             <span class="menu-arrow">›</span>
           </a>
         </div>
@@ -1660,7 +1881,7 @@ const char *str_meas_period = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
         <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -1913,7 +2134,7 @@ const char *str_ave_normal = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/f1c9t' class="btn-factory-home">Factory Home</a>
+        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
         <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -3431,12 +3652,14 @@ void wifi_set_submit(String req_str) {
 }
 
 String get_trans_param_str() {
-  // 12個の変換パラメータ (val, large, small) x 4ch + 測定周期 + モデルNo
+  // 20個の変換パラメータ (val, large, meas_large, small, meas_small) x 4ch
   String str = "";
   for (int i = 0; i < 4; i++) {
     str += String(md_trans(RAW_MD[i], &T_PARA[i]), 2) + ",";
     str += String(T_PARA[i].para_large, 2) + ",";
+    str += String(T_PARA[i].meas_large) + ",";
     str += String(T_PARA[i].para_small, 2) + ",";
+    str += String(T_PARA[i].meas_small) + ",";
   }
   return str;
 }
@@ -3701,6 +3924,16 @@ void wifi_access_point() {
           client.print(stmp.c_str());
           delay(10);
           client.stop();
+        } else if (req_str.indexOf("GET /factory_param_set/?") >= 0) {
+          pre_url = "GET /factory_param_set";
+          get_pram_from_url(req_str);
+          req_str = "";
+        } else if (req_str.indexOf("GET /factory_param_set") >= 0) {
+          pre_url = "GET /factory_param_set";
+          client.print(html_res_head);
+          client.print(str_factory_calibration);
+          delay(10);
+          client.stop();
         } else if (req_str.indexOf("GET /param_set/?") >= 0) {
           pre_url = "GET /param_set";
           get_pram_from_url(req_str);
@@ -3825,8 +4058,8 @@ void wifi_access_point() {
           client.print(String(PARA.pulse_weight, 1).c_str());
           delay(10);
           client.stop();
-        } else if (req_str.indexOf("GET /f1c9t?") >= 0) {
-          pre_url = "GET /f1c9t";
+        } else if (req_str.indexOf("GET /factory2416?") >= 0) {
+          pre_url = "GET /factory2416";
           int16_t idx0 = req_str.indexOf("model_no=");
           if (idx0 >= 0) {
             String stmp = req_str.substring(
@@ -3843,9 +4076,9 @@ void wifi_access_point() {
           delay(10);
           client.stop();
           req_str = "";
-        } else if (req_str.indexOf("GET /f1c9t") >= 0) {
+        } else if (req_str.indexOf("GET /factory2416") >= 0) {
           PAGE_NUM = 0;
-          pre_url = "GET /f1c9t";
+          pre_url = "GET /factory2416";
           client.print(html_res_head);
           client.print(str_factory);
           delay(10);
@@ -3886,13 +4119,15 @@ void wifi_access_point() {
             client.print(str_client_id_set);
           else if (pre_url.indexOf("GET /topic_set") >= 0)
             client.print(str_topic_set);
+          else if (pre_url.indexOf("GET /factory_param_set") >= 0)
+            client.print(str_factory_calibration);
           else if (pre_url.indexOf("GET /param_set") >= 0)
             client.print(str_calibration);
           else if (pre_url.indexOf("GET /meas_period_set") >= 0)
             client.print(str_meas_period);
           else if (pre_url.indexOf("GET /host_ip_set") >= 0)
             client.print(str_host_ip);
-          else if (pre_url.indexOf("GET /f1c9t") >= 0)
+          else if (pre_url.indexOf("GET /factory2416") >= 0)
             client.print(str_factory);
           else if (pre_url.indexOf("GET /ave_normal_set") >= 0)
             client.print(str_ave_normal);
