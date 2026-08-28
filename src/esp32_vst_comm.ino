@@ -6,12 +6,9 @@
 
 // 0:通常動作
 // 1:騒音・振動デバッグ用(インクリメント)
-// 2:騒音・振動デバッグ用(固定シード乱数1〜3000)
-#define NOISE_VIB_DEBUG 0
-// 1（インクリメント 1〜6000）での期待値:
-// {"id":"rx01","ch1":"2850.50@2700.50@1500.50@300.50@150.50@0.50@3000.00@2971.85","ch2":"2850.50@2700.50@1500.50@300.50@150.50@0.50@3000.00@2971.85","ch3":"1500.25","ch4":"1500.25"}
-// 2（固定シード乱数 1〜3000）での期待値:
-// {"id":"rx01","ch1":"2856.00@2710.00@1533.00@308.00@157.00@1.00@3000.00@2972.45","ch2":"2856.00@2710.00@1533.00@308.00@157.00@1.00@3000.00@2972.45","ch3":"1524.66","ch4":"1524.66"}
+// 2:騒音・振動デバッグ用(サンプリング毎にADC値をSerial出力:
+// mcnt:XXXX,ch1,ch2,ch3,ch4)
+#define NOISE_VIB_DEBUG 2
 
 #include "aws.h" // AWS証明書
 #include "esp_sntp.h"
@@ -89,7 +86,7 @@ const char *pubTopic =
     "pub_prod"; // デフォルト製品版 ("pub01" はクラウドデバッグ用)
 const char ntp_server[][30] = {"ntp.nict.jp", "pool.ntp.org",
                                "ntp.jst.mfeed.ad.jp"};
-long CUR_TIME;
+time_t CUR_TIME;
 struct tm TIMEINFO;
 
 String ap_ssid = "TIC-AP";   // ESP32 softAP SSID
@@ -310,6 +307,21 @@ const char *str_calibration = R"rawliteral(
         </form>
       </div>
 
+      <div class="card">
+        <div class="card-title">パルスカウント &amp; リレー動作確認</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; background:#f8fafc; padding:12px 14px; border-radius:10px; border:1px solid #e2e8f0;">
+          <div style="font-size:14px; font-weight:600; color:#334155;">パルスカウント数:</div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div><span id="rain_cnt_val" class="value" style="font-size:18px; color:#16a34a;">0</span> <span style="font-size:12px; color:#64748b; font-weight:600;">counts</span></div>
+            <button type="button" onclick="resetRainCount()" style="padding:4px 10px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid #cbd5e1; background:#ffffff; color:#64748b;">クリア</button>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:12px 14px; border-radius:10px; border:1px solid #e2e8f0;">
+          <div style="font-size:14px; font-weight:600; color:#334155;">リレー : <span id="relay_status_text" style="font-weight:700; color:#dc2626;">OFF</span></div>
+          <button type="button" id="btn_relay_toggle" onclick="toggleRelay()" style="padding:8px 16px; border-radius:8px; font-size:13px; font-weight:700; cursor:pointer; border:1.5px solid #86efac; background:#dcfce7; color:#16a34a; transition:all 0.2s;">リレー ON にする</button>
+        </div>
+      </div>
+
       <div class="nav-group">
         <a href="/" class="btn btn-secondary">Home</a>
         <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
@@ -323,20 +335,66 @@ const char *str_calibration = R"rawliteral(
         if (this.readyState == 4 && this.status == 200) {
           let val = this.responseText.split(',');
           document.getElementById("val_ch1").innerHTML = val[0];
-          document.getElementById("pl_ch1").innerHTML = val[1];
-          document.getElementById("ps_ch1").innerHTML = val[3];
-          document.getElementById("val_ch2").innerHTML = val[5];
-          document.getElementById("pl_ch2").innerHTML = val[6];
-          document.getElementById("ps_ch2").innerHTML = val[8];
-          document.getElementById("val_ch3").innerHTML = val[10];
-          document.getElementById("pl_ch3").innerHTML = val[11];
-          document.getElementById("ps_ch3").innerHTML = val[13];
-          document.getElementById("val_ch4").innerHTML = val[15];
-          document.getElementById("pl_ch4").innerHTML = val[16];
-          document.getElementById("ps_ch4").innerHTML = val[18];
+          document.getElementById("pl_ch1").innerHTML = val[2];
+          document.getElementById("ps_ch1").innerHTML = val[4];
+          document.getElementById("val_ch2").innerHTML = val[6];
+          document.getElementById("pl_ch2").innerHTML = val[8];
+          document.getElementById("ps_ch2").innerHTML = val[10];
+          document.getElementById("val_ch3").innerHTML = val[12];
+          document.getElementById("pl_ch3").innerHTML = val[14];
+          document.getElementById("ps_ch3").innerHTML = val[16];
+          document.getElementById("val_ch4").innerHTML = val[18];
+          document.getElementById("pl_ch4").innerHTML = val[20];
+          document.getElementById("ps_ch4").innerHTML = val[22];
+          if (val.length >= 25) {
+            let rc = document.getElementById("rain_cnt_val");
+            if (rc) rc.innerHTML = val[24];
+          }
+          if (val.length >= 26) {
+            let rState = Number(val[25]);
+            let rText = document.getElementById("relay_status_text");
+            let rBtn = document.getElementById("btn_relay_toggle");
+            if (rText && rBtn) {
+              if (rState === 1) {
+                rText.innerHTML = "ON";
+                rText.style.color = "#16a34a";
+                rBtn.innerHTML = "リレー OFF にする";
+                rBtn.style.background = "#fee2e2";
+                rBtn.style.color = "#dc2626";
+                rBtn.style.borderColor = "#fca5a5";
+              } else {
+                rText.innerHTML = "OFF";
+                rText.style.color = "#dc2626";
+                rBtn.innerHTML = "リレー ON にする";
+                rBtn.style.background = "#dcfce7";
+                rBtn.style.color = "#16a34a";
+                rBtn.style.borderColor = "#86efac";
+              }
+            }
+          }
         }
       };
       xhr.open("GET", "/disp_trans_param", true);
+      xhr.send(null);
+    }
+    function toggleRelay() {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          disp_trans_param();
+        }
+      };
+      xhr.open("GET", "/relay_toggle", true);
+      xhr.send(null);
+    }
+    function resetRainCount() {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          disp_trans_param();
+        }
+      };
+      xhr.open("GET", "/rain_cnt_reset", true);
       xhr.send(null);
     }
     var ch_ls_param = function () {
@@ -484,13 +542,13 @@ const char *str_factory_calibration = R"rawliteral(
         <div class="card-title">測定データ &amp; パラメータ (LARGE / SMALL / ADC)</div>
         <table>
           <thead>
-            <tr><th>CH</th><th>測定データ</th><th>LARGE</th><th>ADC</th><th>SMALL</th><th>ADC</th></tr>
+            <tr><th>CH</th><th>測定データ</th><th>ADC瞬時値</th><th>LARGE</th><th>ADC</th><th>SMALL</th><th>ADC</th></tr>
           </thead>
           <tbody>
-            <tr><td class="ch-cell">CH1</td><td><span id="val_ch1" class="value">-</span></td><td><span id="pl_ch1" class="value">-</span></td><td><span id="ml_ch1" class="value">-</span></td><td><span id="ps_ch1" class="value">-</span></td><td><span id="ms_ch1" class="value">-</span></td></tr>
-            <tr><td class="ch-cell">CH2</td><td><span id="val_ch2" class="value">-</span></td><td><span id="pl_ch2" class="value">-</span></td><td><span id="ml_ch2" class="value">-</span></td><td><span id="ps_ch2" class="value">-</span></td><td><span id="ms_ch2" class="value">-</span></td></tr>
-            <tr><td class="ch-cell">CH3</td><td><span id="val_ch3" class="value">-</span></td><td><span id="pl_ch3" class="value">-</span></td><td><span id="ml_ch3" class="value">-</span></td><td><span id="ps_ch3" class="value">-</span></td><td><span id="ms_ch3" class="value">-</span></td></tr>
-            <tr><td class="ch-cell">CH4</td><td><span id="val_ch4" class="value">-</span></td><td><span id="pl_ch4" class="value">-</span></td><td><span id="ml_ch4" class="value">-</span></td><td><span id="ps_ch4" class="value">-</span></td><td><span id="ms_ch4" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH1</td><td><span id="val_ch1" class="value">-</span></td><td><span id="adc_ch1" class="value">-</span></td><td><span id="pl_ch1" class="value">-</span></td><td><span id="ml_ch1" class="value">-</span></td><td><span id="ps_ch1" class="value">-</span></td><td><span id="ms_ch1" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH2</td><td><span id="val_ch2" class="value">-</span></td><td><span id="adc_ch2" class="value">-</span></td><td><span id="pl_ch2" class="value">-</span></td><td><span id="ml_ch2" class="value">-</span></td><td><span id="ps_ch2" class="value">-</span></td><td><span id="ms_ch2" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH3</td><td><span id="val_ch3" class="value">-</span></td><td><span id="adc_ch3" class="value">-</span></td><td><span id="pl_ch3" class="value">-</span></td><td><span id="ml_ch3" class="value">-</span></td><td><span id="ps_ch3" class="value">-</span></td><td><span id="ms_ch3" class="value">-</span></td></tr>
+            <tr><td class="ch-cell">CH4</td><td><span id="val_ch4" class="value">-</span></td><td><span id="adc_ch4" class="value">-</span></td><td><span id="pl_ch4" class="value">-</span></td><td><span id="ml_ch4" class="value">-</span></td><td><span id="ps_ch4" class="value">-</span></td><td><span id="ms_ch4" class="value">-</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -523,6 +581,21 @@ const char *str_factory_calibration = R"rawliteral(
         </form>
       </div>
 
+      <div class="card">
+        <div class="card-title">パルスカウント &amp; リレー動作確認</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; background:#f8fafc; padding:12px 14px; border-radius:10px; border:1px solid #e2e8f0;">
+          <div style="font-size:14px; font-weight:600; color:#334155;">パルスカウント数:</div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div><span id="rain_cnt_val" class="value" style="font-size:18px; color:#16a34a;">0</span> <span style="font-size:12px; color:#64748b; font-weight:600;">counts</span></div>
+            <button type="button" onclick="resetRainCount()" style="padding:4px 10px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid #cbd5e1; background:#ffffff; color:#64748b;">クリア</button>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:12px 14px; border-radius:10px; border:1px solid #e2e8f0;">
+          <div style="font-size:14px; font-weight:600; color:#334155;">リレー: <span id="relay_status_text" style="font-weight:700; color:#dc2626;">OFF</span></div>
+          <button type="button" id="btn_relay_toggle" onclick="toggleRelay()" style="padding:8px 16px; border-radius:8px; font-size:13px; font-weight:700; cursor:pointer; border:1.5px solid #86efac; background:#dcfce7; color:#16a34a; transition:all 0.2s;">リレー ON にする</button>
+        </div>
+      </div>
+
       <div class="nav-group">
         <a href='/factory2416' class="btn-factory-home">Factory Home</a>
         <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
@@ -536,28 +609,78 @@ const char *str_factory_calibration = R"rawliteral(
         if (this.readyState == 4 && this.status == 200) {
           let val = this.responseText.split(',');
           document.getElementById("val_ch1").innerHTML = val[0];
-          document.getElementById("pl_ch1").innerHTML = val[1];
-          document.getElementById("ml_ch1").innerHTML = val[2];
-          document.getElementById("ps_ch1").innerHTML = val[3];
-          document.getElementById("ms_ch1").innerHTML = val[4];
-          document.getElementById("val_ch2").innerHTML = val[5];
-          document.getElementById("pl_ch2").innerHTML = val[6];
-          document.getElementById("ml_ch2").innerHTML = val[7];
-          document.getElementById("ps_ch2").innerHTML = val[8];
-          document.getElementById("ms_ch2").innerHTML = val[9];
-          document.getElementById("val_ch3").innerHTML = val[10];
-          document.getElementById("pl_ch3").innerHTML = val[11];
-          document.getElementById("ml_ch3").innerHTML = val[12];
-          document.getElementById("ps_ch3").innerHTML = val[13];
-          document.getElementById("ms_ch3").innerHTML = val[14];
-          document.getElementById("val_ch4").innerHTML = val[15];
-          document.getElementById("pl_ch4").innerHTML = val[16];
-          document.getElementById("ml_ch4").innerHTML = val[17];
-          document.getElementById("ps_ch4").innerHTML = val[18];
-          document.getElementById("ms_ch4").innerHTML = val[19];
+          document.getElementById("adc_ch1").innerHTML = val[1];
+          document.getElementById("pl_ch1").innerHTML = val[2];
+          document.getElementById("ml_ch1").innerHTML = val[3];
+          document.getElementById("ps_ch1").innerHTML = val[4];
+          document.getElementById("ms_ch1").innerHTML = val[5];
+          document.getElementById("val_ch2").innerHTML = val[6];
+          document.getElementById("adc_ch2").innerHTML = val[7];
+          document.getElementById("pl_ch2").innerHTML = val[8];
+          document.getElementById("ml_ch2").innerHTML = val[9];
+          document.getElementById("ps_ch2").innerHTML = val[10];
+          document.getElementById("ms_ch2").innerHTML = val[11];
+          document.getElementById("val_ch3").innerHTML = val[12];
+          document.getElementById("adc_ch3").innerHTML = val[13];
+          document.getElementById("pl_ch3").innerHTML = val[14];
+          document.getElementById("ml_ch3").innerHTML = val[15];
+          document.getElementById("ps_ch3").innerHTML = val[16];
+          document.getElementById("ms_ch3").innerHTML = val[17];
+          document.getElementById("val_ch4").innerHTML = val[18];
+          document.getElementById("adc_ch4").innerHTML = val[19];
+          document.getElementById("pl_ch4").innerHTML = val[20];
+          document.getElementById("ml_ch4").innerHTML = val[21];
+          document.getElementById("ps_ch4").innerHTML = val[22];
+          document.getElementById("ms_ch4").innerHTML = val[23];
+          if (val.length >= 25) {
+            let rc = document.getElementById("rain_cnt_val");
+            if (rc) rc.innerHTML = val[24];
+          }
+          if (val.length >= 26) {
+            let rState = Number(val[25]);
+            let rText = document.getElementById("relay_status_text");
+            let rBtn = document.getElementById("btn_relay_toggle");
+            if (rText && rBtn) {
+              if (rState === 1) {
+                rText.innerHTML = "ON";
+                rText.style.color = "#16a34a";
+                rBtn.innerHTML = "リレー OFF にする";
+                rBtn.style.background = "#fee2e2";
+                rBtn.style.color = "#dc2626";
+                rBtn.style.borderColor = "#fca5a5";
+              } else {
+                rText.innerHTML = "OFF";
+                rText.style.color = "#dc2626";
+                rBtn.innerHTML = "リレー ON にする";
+                rBtn.style.background = "#dcfce7";
+                rBtn.style.color = "#16a34a";
+                rBtn.style.borderColor = "#86efac";
+              }
+            }
+          }
         }
       };
-      xhr.open("GET", "/disp_trans_param", true);
+      xhr.open("GET", "/disp_factory_trans_param", true);
+      xhr.send(null);
+    }
+    function toggleRelay() {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          disp_trans_param();
+        }
+      };
+      xhr.open("GET", "/relay_toggle", true);
+      xhr.send(null);
+    }
+    function resetRainCount() {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          disp_trans_param();
+        }
+      };
+      xhr.open("GET", "/rain_cnt_reset", true);
       xhr.send(null);
     }
     var ch_ls_param = function () {
@@ -2353,9 +2476,31 @@ String html_tag2 =
     "      if (!m) {\r\n"
     "        m = document.createElement('div');\r\n"
     "        m.id = 'resetModal';\r\n"
-    "        m.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;';\r\n"
+    "        m.style = "
+    "'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(15,23,"
+    "42,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-"
+    "content:center;z-index:9999;';\r\n"
     "        m.onclick = function(e) { if (e.target === m) m.remove(); };\r\n"
-    "        m.innerHTML = '<div style=\"background:#fff;border-radius:16px;padding:24px;max-width:320px;width:90%;text-align:center;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);box-sizing:border-box;\"><div style=\"font-size:36px;margin-bottom:6px;\">🔄</div><div style=\"font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px 0;\">本体リセット確認</div><div style=\"font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;\">本体を再起動（リセット）しますか？</div><div style=\"display:flex;gap:10px;\"><button type=\"button\" onclick=\"document.getElementById(\\'resetModal\\').remove()\" style=\"flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;\">キャンセル</button><a href=\"/unit_reset\" style=\"flex:1;padding:12px 10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;display:inline-block;line-height:normal;\">再起動</a></div></div>';\r\n"
+    "        m.innerHTML = '<div "
+    "style=\"background:#fff;border-radius:16px;padding:24px;max-width:320px;"
+    "width:90%;text-align:center;box-shadow:0 20px 25px -5px "
+    "rgba(0,0,0,0.2);box-sizing:border-box;\"><div "
+    "style=\"font-size:36px;margin-bottom:6px;\">🔄</div><div "
+    "style=\"font-size:18px;font-weight:800;color:#1e293b;margin:0 0 8px "
+    "0;\">本体リセット確認</div><div "
+    "style=\"font-size:14px;color:#64748b;margin-bottom:20px;line-height:1.5;"
+    "\">本体を再起動（リセット）しますか？</div><div "
+    "style=\"display:flex;gap:10px;\"><button type=\"button\" "
+    "onclick=\"document.getElementById(\\'resetModal\\').remove()\" "
+    "style=\"flex:1;padding:12px "
+    "10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;"
+    "background:#f1f5f9;color:#475569;border:1.5px solid "
+    "#cbd5e1;\">キャンセル</button><a href=\"/unit_reset\" "
+    "style=\"flex:1;padding:12px "
+    "10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;"
+    "background:#fee2e2;color:#dc2626;border:1.5px solid "
+    "#fca5a5;text-decoration:none;text-align:center;box-sizing:border-box;"
+    "display:inline-block;line-height:normal;\">再起動</a></div></div>';\r\n"
     "        document.body.appendChild(m);\r\n"
     "      }\r\n"
     "    }\r\n"
@@ -2395,6 +2540,7 @@ void update_client_id(void);
 void get_client_id_from_url(String req_str);
 void get_topic_from_url(String req_str);
 void get_pulse_from_url(String req_str);
+String get_trans_param_str(boolean is_factory);
 void IRAM_ATTR resetModule();
 
 // 測定関数プロトタイプ
@@ -2512,6 +2658,7 @@ void IRAM_ATTR resetModule() { esp_restart(); }
 // EEPROM 読み書き (統合版)
 // -----------------------------------------------------------------------------
 void eeprom_write(void) {
+  EEPROM.begin(sizeof(UnifiedEepromSettings));
   UnifiedEepromSettings cfg;
   memset(&cfg, 0, sizeof(cfg));
   strcpy(cfg.magic, "VST_U04");
@@ -2535,7 +2682,17 @@ void eeprom_write(void) {
   cfg.pulse_weight = PARA.pulse_weight;
 
   EEPROM.put(0, cfg);
-  EEPROM.commit();
+  boolean commit_ok = EEPROM.commit();
+  Serial.printf(
+      "[EEPROM] Write %s | CH1: L=%.1f(A:%d) S=%.1f(A:%d) | CH2: L=%.1f(A:%d) "
+      "S=%.1f(A:%d) | CH3: L=%.1f(A:%d) S=%.1f(A:%d) | CH4: L=%.1f(A:%d) "
+      "S=%.1f(A:%d)\n",
+      commit_ok ? "OK" : "FAILED", T_PARA[0].para_large, T_PARA[0].meas_large,
+      T_PARA[0].para_small, T_PARA[0].meas_small, T_PARA[1].para_large,
+      T_PARA[1].meas_large, T_PARA[1].para_small, T_PARA[1].meas_small,
+      T_PARA[2].para_large, T_PARA[2].meas_large, T_PARA[2].para_small,
+      T_PARA[2].meas_small, T_PARA[3].para_large, T_PARA[3].meas_large,
+      T_PARA[3].para_small, T_PARA[3].meas_small);
 }
 
 boolean eeprom_read(void) {
@@ -2579,6 +2736,12 @@ boolean eeprom_read(void) {
     }
 
     update_client_id();
+    Serial.println("[EEPROM] Loaded VST_U04 settings successfully:");
+    for (int i = 0; i < 4; i++) {
+      Serial.printf("  CH%d: LARGE=%.2f (ADC=%d), SMALL=%.2f (ADC=%d)\n", i + 1,
+                    T_PARA[i].para_large, T_PARA[i].meas_large,
+                    T_PARA[i].para_small, T_PARA[i].meas_small);
+    }
     return true;
   } else if (strcmp(cfg.magic, "VST_U03") == 0) {
     PARA.model_no = cfg.model_no;
@@ -2675,6 +2838,8 @@ boolean eeprom_read(void) {
     return true;
   } else {
     // 初期値設定
+    Serial.println("[EEPROM] Magic mismatch or first boot. Initializing "
+                   "default settings...");
     PARA.model_no = 0; // rex noise/vibration
     PARA.s_n_xave_flg[0] = "0";
     PARA.s_n_xave_flg[1] = "0";
@@ -2707,8 +2872,6 @@ float md_trans(float val, trans_para *para) {
 #if NOISE_VIB_DEBUG == 1
   return val / 2.0f; // 半分にした値 (最大3000)
                      // を返し、Leqの浮動小数点オーバーフローを防止
-#elif NOISE_VIB_DEBUG == 2
-  return val; // 1〜3000の乱数値をそのまま使用
 #else
   if ((para->meas_large - para->meas_small) == 0) {
     return val;
@@ -2728,15 +2891,10 @@ void read_mcp3424(void) {
     PRE_RAW_MD[ch_num] = RAW_MD[ch_num];
   }
   debug_raw_val++;
-#elif NOISE_VIB_DEBUG == 2
-  int r_val = 1 + (rand() % 3000); // 1〜3000の乱数
-  for (int ch_num = 0; ch_num < 4; ch_num++) {
-    RAW_MD[ch_num] = r_val;
-    PRE_RAW_MD[ch_num] = RAW_MD[ch_num];
-  }
 #else
   int ch_num, val[3];
-  static int adc_conv_time = 6;
+  static const int adc_conv_time =
+      8; // 12bit変換完了待ち(4.17ms)に対するタイムアウト(最悪時8ms×4ch=32msで50ms以内に確実に完了)
   for (ch_num = 0; ch_num < 4; ch_num++) {
     Wire.beginTransmission(0x68);
     Wire.write(0x80 + ch_num * 32);
@@ -2752,11 +2910,11 @@ void read_mcp3424(void) {
           RAW_MD[ch_num] = PRE_RAW_MD[ch_num];
         }
         PRE_RAW_MD[ch_num] = RAW_MD[ch_num];
-        delay(5);
-        break;
+        break; // 変換完了後、余分なディレイを挟まず即座に次のチャンネルへ
       } else if (millis() - spl_start >= adc_conv_time) {
         break;
       }
+      delayMicroseconds(100);
     }
   }
 #endif
@@ -2774,6 +2932,8 @@ void meas_set_param(int ch, int is_small, float val) {
     T_PARA[ch].para_small = val;
     T_PARA[ch].meas_small = RAW_MD[ch];
   }
+  Serial.printf("[CALIB] Set CH%d %s = %.2f (captured raw ADC = %d)\n", ch + 1,
+                (is_small == 0) ? "LARGE" : "SMALL", val, RAW_MD[ch]);
   eeprom_write();
 }
 
@@ -2781,6 +2941,10 @@ void meas_trigger_rain(void) { RAIN_FLAG = true; }
 
 // 10ms周期 雨量パルス監視
 void meas_rain_sample(unsigned long now) {
+  if (!AP_MODE && PARA.model_no != 3) {
+    RAIN_CNT = 0;
+    return;
+  }
   if (now - RAIN_DETECT_TIME >= RAIN_SMPL_TIME) {
     RAIN_DETECT_TIME = now;
     RAIN_PULSE[2] = RAIN_PULSE[1];
@@ -2799,6 +2963,11 @@ void meas_rain_sample(unsigned long now) {
 // ADCサンプリングとデータ集計 (1ステップ処理)
 void meas_adc_sample_step(void) {
   read_mcp3424();
+
+#if NOISE_VIB_DEBUG == 2
+  Serial.printf("mcnt:%d,%d,%d,%d,%d\r\n", MCNT, RAW_MD[0], RAW_MD[1],
+                RAW_MD[2], RAW_MD[3]);
+#endif
 
   for (int ch = 0; ch < 4; ch++) {
     if (MCNT == 0) {
@@ -2839,8 +3008,6 @@ void meas_adc_sample_step(void) {
         }
 #if NOISE_VIB_DEBUG == 1
         debug_raw_val = 1;
-#elif NOISE_VIB_DEBUG == 2
-        srand(12345);
 #endif
       } else {
         int sample_count = MCNT + 1;
@@ -2920,8 +3087,6 @@ void meas_adc_sample_step(void) {
 #if NOISE_VIB_DEBUG == 1
       debug_raw_val =
           1; // ループカウンタがリセットされるタイミングで初期値を1に再設定
-#elif NOISE_VIB_DEBUG == 2
-      srand(12345); // 毎回の測定サイクルで同じ乱数系列を再現
 #endif
     } else {
       MCNT++;
@@ -2936,9 +3101,6 @@ void measurement_task(void *pvParameters) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
   const TickType_t xFrequency = pdMS_TO_TICKS(10); // 10ms基準ティック
   int tick_10ms_count = 0;
-#if NOISE_VIB_DEBUG == 2
-  srand(12345);
-#endif
 
   while (1) {
     // 累積ドリフトなしの厳密な10ms周期ウェイクアップ
@@ -2949,9 +3111,9 @@ void measurement_task(void *pvParameters) {
     meas_rain_sample(now);
 
     tick_10ms_count++;
-    int target_ticks = (SMPL_TIME >= 1000)
-                           ? 100
-                           : 10; // 通常時: 10回(100ms), AP時: 100回(1000ms)
+    int target_ticks = (SMPL_TIME >= 1000) ? 100 : (SMPL_TIME / 10);
+    if (target_ticks < 1)
+      target_ticks = 1;
     if (tick_10ms_count >= target_ticks) {
       tick_10ms_count = 0;
       meas_adc_sample_step();
@@ -2988,7 +3150,9 @@ boolean set_sysclcok() {
   }
   time(&CUR_TIME);
   struct tm *tm = localtime(&CUR_TIME);
-  Serial.printf("Time: %02d:%02d:%02d\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
+  Serial.printf("Time: %04d/%02d/%02d %02d:%02d:%02d\n", tm->tm_year + 1900,
+                tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min,
+                tm->tm_sec);
   CUR_MIN = tm->tm_min;
   return true;
 }
@@ -3116,6 +3280,13 @@ void aws_mqtt_publish(char *str) {
   if (AP_MODE)
     return;
   mqttClient.loop();
+#if NOISE_VIB_DEBUG > 0
+  for (int i = 0; i < 4; i++) {
+    Serial.printf("  CH%d: LARGE=%.2f (ADC=%d), SMALL=%.2f (ADC=%d)\n", i + 1,
+                  T_PARA[i].para_large, T_PARA[i].meas_large,
+                  T_PARA[i].para_small, T_PARA[i].meas_small);
+  }
+#endif
   Serial.printf("Publishing to [%s]: ", PARA.pub_topic.c_str());
   Serial.println(str);
   if (mqttClient.publish(PARA.pub_topic.c_str(), str)) {
@@ -3336,7 +3507,8 @@ String HTML_Select_Box_str(String Sel_Ssid) {
   str += "</div>\r\n";
   str += "<div class='nav-group'>\r\n";
   str += "  <a href='/' class='btn-home'>Home</a>\r\n";
-  str += "  <a href='#' class='btn-reset' onclick='confirmReset(); return false;'>🔄 本体リセット</a>\r\n";
+  str += "  <a href='#' class='btn-reset' onclick='confirmReset(); return "
+         "false;'>🔄 本体リセット</a>\r\n";
   str += "</div>\r\n";
   return str;
 }
@@ -3651,16 +3823,23 @@ void wifi_set_submit(String req_str) {
   }
 }
 
-String get_trans_param_str() {
-  // 20個の変換パラメータ (val, large, meas_large, small, meas_small) x 4ch
+String get_trans_param_str(boolean is_factory = false) {
+  // 24個の変換パラメータ (val, raw_adc, large, meas_large, small, meas_small) x
+  // 4ch
   String str = "";
   for (int i = 0; i < 4; i++) {
     str += String(md_trans(RAW_MD[i], &T_PARA[i]), 2) + ",";
+    str += String(RAW_MD[i]) + ",";
     str += String(T_PARA[i].para_large, 2) + ",";
     str += String(T_PARA[i].meas_large) + ",";
     str += String(T_PARA[i].para_small, 2) + ",";
     str += String(T_PARA[i].meas_small) + ",";
   }
+  // 工場設定画面ならモードに関係なくパルスカウント数を表示、通常画面なら雨量モード(Model
+  // 3)のみ表示
+  int disp_pulse_cnt = (is_factory || PARA.model_no == 3) ? RAIN_CNT : 0;
+  str += String(disp_pulse_cnt) + ",";
+  str += String(digitalRead(RELAY_OUT));
   return str;
 }
 
@@ -3916,17 +4095,47 @@ void wifi_access_point() {
           client.print(PARA.pub_topic.c_str());
           delay(10);
           client.stop();
+        } else if (req_str.indexOf("GET /disp_factory_trans_param") >= 0) {
+          PAGE_NUM = 1;
+          client.print(html_res_head2);
+          String stmp = get_trans_param_str(true);
+          client.print(stmp.c_str());
+          delay(10);
+          client.stop();
         } else if (req_str.indexOf("GET /disp_trans_param") >= 0 ||
                    req_str.indexOf("GET /get_meas_param") >= 0) {
           PAGE_NUM = 1;
           client.print(html_res_head2);
-          String stmp = get_trans_param_str();
+          String stmp = get_trans_param_str(false);
           client.print(stmp.c_str());
           delay(10);
           client.stop();
+        } else if (req_str.indexOf("GET /relay_toggle") >= 0) {
+          int cur_state = digitalRead(RELAY_OUT);
+          int new_state = (cur_state == HIGH) ? LOW : HIGH;
+          digitalWrite(RELAY_OUT, new_state);
+          Serial.printf("[WEB] Relay toggled to: %s\n",
+                        (new_state == HIGH) ? "ON" : "OFF");
+          client.print(html_res_head2);
+          client.print(new_state);
+          delay(10);
+          client.stop();
+          req_str = "";
+        } else if (req_str.indexOf("GET /rain_cnt_reset") >= 0) {
+          RAIN_CNT = 0;
+          Serial.println("[WEB] Rain count reset to 0");
+          client.print(html_res_head2);
+          client.print("0");
+          delay(10);
+          client.stop();
+          req_str = "";
         } else if (req_str.indexOf("GET /factory_param_set/?") >= 0) {
           pre_url = "GET /factory_param_set";
           get_pram_from_url(req_str);
+          client.print(html_res_head);
+          client.print(str_factory_calibration);
+          delay(10);
+          client.stop();
           req_str = "";
         } else if (req_str.indexOf("GET /factory_param_set") >= 0) {
           pre_url = "GET /factory_param_set";
@@ -3937,6 +4146,10 @@ void wifi_access_point() {
         } else if (req_str.indexOf("GET /param_set/?") >= 0) {
           pre_url = "GET /param_set";
           get_pram_from_url(req_str);
+          client.print(html_res_head);
+          client.print(str_calibration);
+          delay(10);
+          client.stop();
           req_str = "";
         } else if (req_str.indexOf("GET /param_set") >= 0) {
           pre_url = "GET /param_set";
@@ -3947,6 +4160,10 @@ void wifi_access_point() {
         } else if (req_str.indexOf("GET /meas_period_set/?") >= 0) {
           pre_url = "GET /meas_period_set";
           get_meas_period_from_url(req_str);
+          client.print(html_res_head);
+          client.print(str_meas_period);
+          delay(10);
+          client.stop();
           req_str = "";
         } else if (req_str.indexOf("GET /meas_period_set") >= 0) {
           pre_url = "GET /meas_period_set";
@@ -3957,6 +4174,10 @@ void wifi_access_point() {
         } else if (req_str.indexOf("GET /shreshold_set/?") >= 0) {
           pre_url = "GET /shreshold_set";
           get_shreshold_from_url(req_str);
+          client.print(html_res_head);
+          client.print(str_shreshold);
+          delay(10);
+          client.stop();
           req_str = "";
         } else if (req_str.indexOf("GET /shreshold_set") >= 0) {
           pre_url = "GET /shreshold_set";
@@ -3984,6 +4205,11 @@ void wifi_access_point() {
             }
           }
           eeprom_write();
+          client.print(html_res_head);
+          client.print(str_ave_normal);
+          delay(10);
+          client.stop();
+          req_str = "";
         } else if (req_str.indexOf("GET /ave_normal_set") >= 0) {
           pre_url = "GET /ave_normal_set";
           client.print(html_res_head);
@@ -4001,6 +4227,11 @@ void wifi_access_point() {
               eeprom_write();
             }
           }
+          client.print(html_res_head);
+          client.print(str_host_ip);
+          delay(10);
+          client.stop();
+          req_str = "";
         } else if (req_str.indexOf("GET /host_ip_set") >= 0) {
           pre_url = "GET /host_ip_set";
           client.print(html_res_head);
@@ -4297,6 +4528,7 @@ void setup() {
   digitalWrite(RELAY_OUT, LOW);
 
   Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(400000); // 400kHz I2C Fast Mode (MCP3424の高速サンプリング用)
   Serial.begin(115200);
   Serial2.begin(115200, SERIAL_8N1, 16, 17); // RX: GPIO16, TX: GPIO17 (9600bps)
 
