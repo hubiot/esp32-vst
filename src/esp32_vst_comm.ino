@@ -8,7 +8,9 @@
 // 1:騒音・振動デバッグ用(インクリメント)
 // 2:騒音・振動デバッグ用(サンプリング毎にADC値をSerial出力:
 // mcnt:XXXX,ch1,ch2,ch3,ch4)
-#define NOISE_VIB_DEBUG 2
+#define NOISE_VIB_DEBUG 0
+
+#define VST100 // VST-100なら定義、VST-01ならコメントアウト
 
 #include "aws.h" // AWS証明書
 #include "esp_sntp.h"
@@ -33,6 +35,9 @@ const int SCL_PIN = 22; // I2C MCP3424 SCL
 #define STATUS_LED 32   // ステータスLED
 #define RELAY_OUT 33    // リレー出力
 #define XAP_BTN 35      // APモード切替ボタン (入力のみ・プルアップなし)
+#define IO25_PIN 25     // IO25 出力ピン
+#define RX_PIN 16       // RX (GPIO16)
+#define TX_PIN 17       // TX (GPIO17)
 
 #define JST (3600 * 9)
 
@@ -142,7 +147,7 @@ int PRE_PLS = 0;
 
 int RAW_MD[4];     // MCP3424 Raw測定値
 int PRE_RAW_MD[4]; // エラー時代替用前回値
-#if NOISE_VIB_DEBUG == 0
+#if NOISE_VIB_DEBUG == 1
 int debug_raw_val = 1; // 1から6000へカウントアップ (完全逆順ストレステスト)
 #endif
 // [DEBUG 1 期待値] (1〜6000 カウントアップ, val/2):
@@ -4378,12 +4383,12 @@ void wifi_access_point() {
 // 起動時情報表示
 // -----------------------------------------------------------------------------
 void disp_info(void) {
-  //   Serial.println("\n================================");
-  // #ifdef VST100
-  //   Serial.println("VST-100 (Unified 1-Chip 1-CPU)");
-  // #else
-  //   Serial.println("VST-01 (Unified 1-Chip 1-CPU)");
-  // #endif
+  Serial.println("\n================================");
+#ifdef VST100
+  Serial.println("VST-100");
+#else
+  Serial.println("VST-01-N");
+#endif
 
   update_client_id();
   Serial.printf("ESP32 HARDWARE MAC: %s\n", get_hardware_mac().c_str());
@@ -4526,11 +4531,23 @@ void setup() {
   pinMode(PULSE_IN, INPUT);
   pinMode(RELAY_OUT, OUTPUT);
   digitalWrite(RELAY_OUT, LOW);
+  pinMode(IO25_PIN, OUTPUT);
+  digitalWrite(IO25_PIN, HIGH);
 
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000); // 400kHz I2C Fast Mode (MCP3424の高速サンプリング用)
-  Serial.begin(115200);
-  Serial2.begin(115200, SERIAL_8N1, 16, 17); // RX: GPIO16, TX: GPIO17 (9600bps)
+  Serial.begin(
+      115200, SERIAL_8N1, -1,
+      1); // TX(GPIO1)のみ有効化、RX(GPIO3)は無効化してフローティングノイズ防止
+#if defined(VST100)
+  // VST100: シリアル1は使用せず、RX/TXともにHIGHを出力
+  pinMode(RX_PIN, OUTPUT);
+  digitalWrite(RX_PIN, HIGH);
+  pinMode(TX_PIN, OUTPUT);
+  digitalWrite(TX_PIN, HIGH);
+#else
+  Serial2.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN); // RX: GPIO16, TX: GPIO17
+#endif
 
   // パラメータ読み出し
   eeprom_read();
@@ -4580,11 +4597,6 @@ void setup() {
 // Arduino loop() (通信・Web UI・MQTT・AP処理タスク)
 // -----------------------------------------------------------------------------
 void loop() {
-  // Serial2から入力した文字をそのままSerial2に出力 (エコーバック)
-  while (Serial2.available()) {
-    char c = Serial2.read();
-    Serial2.write(c);
-  }
 
   // APモード時: ボタン押下で即座に本体リセット
   if (AP_MODE) {
