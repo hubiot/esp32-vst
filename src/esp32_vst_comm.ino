@@ -142,7 +142,7 @@ int PRE_PLS = 0;
 
 int RAW_MD[4];     // MCP3424 Raw測定値
 int PRE_RAW_MD[4]; // エラー時代替用前回値
-#if NOISE_VIB_DEBUG == 1
+#if NOISE_VIB_DEBUG == 0
 int debug_raw_val = 1; // 1から6000へカウントアップ (完全逆順ストレステスト)
 #endif
 // [DEBUG 1 期待値] (1〜6000 カウントアップ, val/2):
