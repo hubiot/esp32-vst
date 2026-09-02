@@ -6,7 +6,7 @@
 
 // 0:通常動作
 // 1:騒音・振動デバッグ用(インクリメント)
-// 2:騒音・振動デバッグ用(サンプリング毎にADC値をSerial出力:
+
 // mcnt:XXXX,ch1,ch2,ch3,ch4)
 #define NOISE_VIB_DEBUG 0
 
@@ -16,6 +16,7 @@
 #include "esp_sntp.h"
 #include "esp_system.h"
 #include "time.h"
+#include <ArduinoOTA.h>
 #include <EEPROM.h>
 #include <HTTPClient.h>
 #include <PubSubClient.h>
@@ -23,7 +24,6 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <Wire.h>
-#include <ArduinoOTA.h>
 #include <algorithm>
 #include <math.h>
 
@@ -36,7 +36,7 @@ const int SCL_PIN = 22; // I2C MCP3424 SCL
 #define STATUS_LED 32   // ステータスLED
 #define RELAY_OUT 33    // リレー出力
 #define XAP_BTN 35      // APモード切替ボタン (入力のみ・プルアップなし)
-#define IO25_PIN 25     // IO25 出力ピン
+#define CXS_PIN 25      // CXS
 #define RX_PIN 16       // RX (GPIO16)
 #define TX_PIN 17       // TX (GPIO17)
 
@@ -119,8 +119,9 @@ int PRE_SEC = 0;
 float RAIN_OTH = 0.0; // 正時1時間雨量 (Rain on the hour)
 int RCNT = 0;
 
-String S_CH_NUM = "1";      // Calibration画面用
-String S_LARGE_SMALL = "0"; // 0:large 1:small
+String S_CH_NUM = "1";       // Calibration画面用
+String S_LARGE_SMALL = "0";  // 0:large 1:small
+boolean RELAY_STATE = false; // リレー出力状態保持フラグ
 
 // AWS IoT
 const char *awsEndpoint = "a24t2172v8g5ia-ats.iot.ap-northeast-1.amazonaws.com";
@@ -242,7 +243,7 @@ const char *str_calibration = R"rawliteral(
         background: linear-gradient(135deg, #059669 0%, #047857 100%);
         transform: translateY(-1px);
       }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -358,36 +359,44 @@ const char *str_calibration = R"rawliteral(
           }
           if (val.length >= 26) {
             let rState = Number(val[25]);
-            let rText = document.getElementById("relay_status_text");
-            let rBtn = document.getElementById("btn_relay_toggle");
-            if (rText && rBtn) {
-              if (rState === 1) {
-                rText.innerHTML = "ON";
-                rText.style.color = "#16a34a";
-                rBtn.innerHTML = "リレー OFF にする";
-                rBtn.style.background = "#fee2e2";
-                rBtn.style.color = "#dc2626";
-                rBtn.style.borderColor = "#fca5a5";
-              } else {
-                rText.innerHTML = "OFF";
-                rText.style.color = "#dc2626";
-                rBtn.innerHTML = "リレー ON にする";
-                rBtn.style.background = "#dcfce7";
-                rBtn.style.color = "#16a34a";
-                rBtn.style.borderColor = "#86efac";
-              }
-            }
+            updateRelayUI(rState);
           }
         }
       };
       xhr.open("GET", "/disp_trans_param", true);
       xhr.send(null);
     }
+    function updateRelayUI(rState) {
+      let rText = document.getElementById("relay_status_text");
+      let rBtn = document.getElementById("btn_relay_toggle");
+      if (rText && rBtn) {
+        if (rState === 1) {
+          rText.innerHTML = "ON";
+          rText.style.color = "#16a34a";
+          rBtn.innerHTML = "リレー OFF にする";
+          rBtn.style.background = "#fee2e2";
+          rBtn.style.color = "#dc2626";
+          rBtn.style.borderColor = "#fca5a5";
+        } else {
+          rText.innerHTML = "OFF";
+          rText.style.color = "#dc2626";
+          rBtn.innerHTML = "リレー ON にする";
+          rBtn.style.background = "#dcfce7";
+          rBtn.style.color = "#16a34a";
+          rBtn.style.borderColor = "#86efac";
+        }
+      }
+    }
     function toggleRelay() {
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function() {
         if (this.readyState == 4 && this.status == 200) {
-          disp_trans_param();
+          let s = Number(this.responseText);
+          if (!isNaN(s)) {
+            updateRelayUI(s);
+          } else {
+            disp_trans_param();
+          }
         }
       };
       xhr.open("GET", "/relay_toggle", true);
@@ -516,7 +525,7 @@ const char *str_factory_calibration = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -644,36 +653,44 @@ const char *str_factory_calibration = R"rawliteral(
           }
           if (val.length >= 26) {
             let rState = Number(val[25]);
-            let rText = document.getElementById("relay_status_text");
-            let rBtn = document.getElementById("btn_relay_toggle");
-            if (rText && rBtn) {
-              if (rState === 1) {
-                rText.innerHTML = "ON";
-                rText.style.color = "#16a34a";
-                rBtn.innerHTML = "リレー OFF にする";
-                rBtn.style.background = "#fee2e2";
-                rBtn.style.color = "#dc2626";
-                rBtn.style.borderColor = "#fca5a5";
-              } else {
-                rText.innerHTML = "OFF";
-                rText.style.color = "#dc2626";
-                rBtn.innerHTML = "リレー ON にする";
-                rBtn.style.background = "#dcfce7";
-                rBtn.style.color = "#16a34a";
-                rBtn.style.borderColor = "#86efac";
-              }
-            }
+            updateRelayUI(rState);
           }
         }
       };
       xhr.open("GET", "/disp_factory_trans_param", true);
       xhr.send(null);
     }
+    function updateRelayUI(rState) {
+      let rText = document.getElementById("relay_status_text");
+      let rBtn = document.getElementById("btn_relay_toggle");
+      if (rText && rBtn) {
+        if (rState === 1) {
+          rText.innerHTML = "ON";
+          rText.style.color = "#16a34a";
+          rBtn.innerHTML = "リレー OFF にする";
+          rBtn.style.background = "#fee2e2";
+          rBtn.style.color = "#dc2626";
+          rBtn.style.borderColor = "#fca5a5";
+        } else {
+          rText.innerHTML = "OFF";
+          rText.style.color = "#dc2626";
+          rBtn.innerHTML = "リレー ON にする";
+          rBtn.style.background = "#dcfce7";
+          rBtn.style.color = "#16a34a";
+          rBtn.style.borderColor = "#86efac";
+        }
+      }
+    }
     function toggleRelay() {
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function() {
         if (this.readyState == 4 && this.status == 200) {
-          disp_trans_param();
+          let s = Number(this.responseText);
+          if (!isNaN(s)) {
+            updateRelayUI(s);
+          } else {
+            disp_trans_param();
+          }
         }
       };
       xhr.open("GET", "/relay_toggle", true);
@@ -787,7 +804,7 @@ const char *str_client_id_set = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn-reset {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -933,7 +950,7 @@ const char *str_topic_set = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn-reset {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -1087,7 +1104,7 @@ const char *str_factory = R"rawliteral(
       .btn-home:hover {
         background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px);
       }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
       .btn-reset {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -1216,7 +1233,7 @@ const char *str_rex_noise_shake = R"rawliteral(
       }
       .ch-badge { font-size: 12px; font-weight: bold; color: #0284c7; margin-bottom: 6px; }
       .ch-name { font-size: 16px; font-weight: 600; color: #334155; }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn {
         display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
         font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
@@ -1352,7 +1369,7 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
         font-size: 14px; font-weight: 600; color: #065f46;
         text-align: center;
       }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn {
         display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
         font-size: 16px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -1475,7 +1492,7 @@ const char *str_rex_rain = R"rawliteral(
         font-size: 14px; font-weight: 600; color: #065f46;
         text-align: center;
       }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn {
         display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
         font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
@@ -1612,7 +1629,7 @@ const char *str_normal_4ch_cloud = R"rawliteral(
       }
       .ch-badge { font-size: 12px; font-weight: bold; color: #0284c7; margin-bottom: 6px; }
       .ch-name { font-size: 16px; font-weight: 600; color: #334155; }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn {
         display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
         font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
@@ -1738,7 +1755,7 @@ const char *str_normal_4ch_local = R"rawliteral(
       }
       .ch-badge { font-size: 12px; font-weight: bold; color: #475569; margin-bottom: 6px; }
       .ch-name { font-size: 16px; font-weight: 600; color: #334155; }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn {
         display: block; text-decoration: none; padding: 16px 20px; border-radius: 12px;
         font-size: 16px; font-weight: 600; transition: all 0.2s ease; box-sizing: border-box;
@@ -1863,7 +1880,7 @@ const char *str_host_ip = R"rawliteral(
         box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: all 0.2s ease;
       }
       .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35); }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn-home {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -1979,7 +1996,7 @@ const char *str_meas_period = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn-reset {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -2048,7 +2065,7 @@ const char *str_shreshold = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>閾値設定 - VST</title>
+    <title>しきい値設定 - VST</title>
     <style>
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -2097,7 +2114,7 @@ const char *str_shreshold = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn-reset {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -2109,18 +2126,18 @@ const char *str_shreshold = R"rawliteral(
   </head>
   <body>
     <div class="container">
-      <div class="main-title">閾値 (Shreshold) 設定</div>
+      <div class="main-title">しきい値 (Shreshold) 設定</div>
 
       <div class="card">
         <div class="card-title">現在のステータス</div>
         <div class="info-row">
-          <span class="info-label">現在の閾値:</span>
+          <span class="info-label">現在のしきい値:</span>
           <span id="shreshold_val" class="info-value">-</span>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title">閾値の変更 (0 〜 9999.9)</div>
+        <div class="card-title">しきい値の変更 (0 〜 9999.9)</div>
         <form>
           <input type='text' name='shreshold_param' placeholder='設定値を入力'>
           <button type='submit' name='shreshold_submit' value='send' class="btn-submit">設定を保存</button>
@@ -2213,7 +2230,7 @@ const char *str_ave_normal = R"rawliteral(
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
       }
       .btn-factory-home:hover { background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px); }
-      .nav-group { display: flex; flex-direction: column; gap: 12px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; }
       .btn-reset {
         display: block; text-decoration: none; padding: 14px 20px; border-radius: 12px;
         font-size: 15px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
@@ -2398,7 +2415,7 @@ String html_tag1 =
     "14px;\r\n"
     "    margin-top: 16px; text-align: center;\r\n"
     "  }\r\n"
-    "  .nav-group { display: flex; flex-direction: column; gap: 12px; "
+    "  .nav-group { display: flex; flex-direction: column; gap: 3px; "
     "margin-top: 10px; }\r\n"
     "  .btn-home {\r\n"
     "    display: block; text-decoration: none; padding: 14px 20px; "
@@ -2445,7 +2462,7 @@ String html_tag2 =
     "        if (this.readyState == 4) {\r\n"
     "          btn.disabled = false;\r\n"
     "          icon.classList.remove('spinning');\r\n"
-    "          text.innerText = '再検索';\r\n"
+    "          text.innerText = '検索';\r\n"
     "          if (this.status == 200) {\r\n"
     "            try {\r\n"
     "              var list = JSON.parse(this.responseText);\r\n"
@@ -3248,33 +3265,36 @@ void setup_ota(void) {
   ArduinoOTA.setHostname("esp32-vst");
 
   ArduinoOTA
-    .onStart([]() {
-      String type;
-      if (ArduinoOTA.getCommand() == U_FLASH) {
-        type = "sketch";
-      } else { // U_SPIFFS
-        type = "filesystem";
-      }
-      Serial.println("\n[OTA] Start updating " + type);
-      // OTA書き込み中にWatchdogタイマーが発火しないよう停止
-      if (timer) {
-        timerAlarmDisable(timer);
-      }
-    })
-    .onEnd([]() {
-      Serial.println("\n[OTA] End. Rebooting...");
-    })
-    .onProgress([](unsigned int progress, unsigned int total) {
-      Serial.printf("[OTA] Progress: %u%%\r", (progress / (total / 100)));
-    })
-    .onError([](ota_error_t error) {
-      Serial.printf("[OTA] Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-      else if (error == OTA_END_ERROR) Serial.println("End Failed");
-    });
+      .onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH) {
+          type = "sketch";
+        } else { // U_SPIFFS
+          type = "filesystem";
+        }
+        Serial.println("\n[OTA] Start updating " + type);
+        // OTA書き込み中にWatchdogタイマーが発火しないよう停止
+        if (timer) {
+          timerAlarmDisable(timer);
+        }
+      })
+      .onEnd([]() { Serial.println("\n[OTA] End. Rebooting..."); })
+      .onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("[OTA] Progress: %u%%\r", (progress / (total / 100)));
+      })
+      .onError([](ota_error_t error) {
+        Serial.printf("[OTA] Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR)
+          Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR)
+          Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR)
+          Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR)
+          Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR)
+          Serial.println("End Failed");
+      });
 
   ArduinoOTA.begin();
   ota_initialized = true;
@@ -3460,9 +3480,11 @@ void comm_publish_meas_data(float *sdata) {
     // リレー制御
     if (RAIN_OTH > PARA.shreshold) {
       digitalWrite(RELAY_OUT, HIGH);
+      RELAY_STATE = true;
       Serial.println("RELAY ON");
     } else {
       digitalWrite(RELAY_OUT, LOW);
+      RELAY_STATE = false;
       Serial.println("RELAY OFF");
     }
 
@@ -3545,7 +3567,7 @@ String HTML_Select_Box_str(String Sel_Ssid) {
   str += "        </select>\r\n";
   str += "        <button type='button' id='btn_rescan' onclick='rescanWifi()' "
          "class='btn-rescan'><span id='spin_icon' class='spin-icon'>🔄</span> "
-         "<span id='rescan_text'>再検索</span></button>\r\n";
+         "<span id='rescan_text'>検索</span></button>\r\n";
   str += "      </div>\r\n";
   str += "    </div>\r\n";
   str += "    <div class='form-group'>\r\n";
@@ -3689,7 +3711,7 @@ void wifi_rescan_proc(void) {
       "<meta charset='utf-8'>\r\n"
       "<meta name='viewport' content='width=device-width, initial-scale=1'>\r\n"
       "<meta http-equiv='refresh' content='3;url=/wifi_set/'>\r\n"
-      "<title>WiFi 再検索中 - VST</title>\r\n"
+      "<title>WiFi 検索中 - VST</title>\r\n"
       "<style>\r\n"
       "  body {\r\n"
       "    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
@@ -3721,7 +3743,7 @@ void wifi_rescan_proc(void) {
       "</head>\r\n"
       "<body>\r\n"
       "  <div class='container'>\r\n"
-      "    <h1>📶 Wi-Fi を再検索中...</h1>\r\n"
+      "    <h1>📶 Wi-Fi を検索中...</h1>\r\n"
       "    <div class='loader'></div>\r\n"
       "    "
       "<p>周囲のWi-Fiアクセスポイントをスキャンしています。<br>"
@@ -3841,6 +3863,8 @@ void wifi_set_submit(String req_str) {
     while (client.available())
       client.read();
     delay(100);
+    // ルーター接続テストのため一時的に AP+STA モードへ
+    WiFi.mode(WIFI_AP_STA);
     WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
     uint32_t timeout = millis();
     while (1) {
@@ -3852,6 +3876,9 @@ void wifi_set_submit(String req_str) {
           html_send(false, Selected_SSID_str, "TIME OUT", "#F00", html_res_head,
                     html_tag1, html_tag2);
           exit_flag = true;
+          // 接続失敗時はSTA干渉を避けるためAP専用モードに戻す
+          WiFi.disconnect(true);
+          WiFi.mode(WIFI_AP);
         }
       } else {
         LIP = WiFi.localIP();
@@ -3897,7 +3924,7 @@ String get_trans_param_str(boolean is_factory = false) {
   // 3)のみ表示
   int disp_pulse_cnt = (is_factory || PARA.model_no == 3) ? RAIN_CNT : 0;
   str += String(disp_pulse_cnt) + ",";
-  str += String(digitalRead(RELAY_OUT));
+  str += String(RELAY_STATE ? 1 : 0);
   return str;
 }
 
@@ -4160,6 +4187,7 @@ void wifi_access_point() {
           client.print(stmp.c_str());
           delay(10);
           client.stop();
+          req_str = "";
         } else if (req_str.indexOf("GET /disp_trans_param") >= 0 ||
                    req_str.indexOf("GET /get_meas_param") >= 0) {
           PAGE_NUM = 1;
@@ -4168,14 +4196,14 @@ void wifi_access_point() {
           client.print(stmp.c_str());
           delay(10);
           client.stop();
+          req_str = "";
         } else if (req_str.indexOf("GET /relay_toggle") >= 0) {
-          int cur_state = digitalRead(RELAY_OUT);
-          int new_state = (cur_state == HIGH) ? LOW : HIGH;
-          digitalWrite(RELAY_OUT, new_state);
+          RELAY_STATE = !RELAY_STATE;
+          digitalWrite(RELAY_OUT, RELAY_STATE ? HIGH : LOW);
           Serial.printf("[WEB] Relay toggled to: %s\n",
-                        (new_state == HIGH) ? "ON" : "OFF");
+                        RELAY_STATE ? "ON" : "OFF");
           client.print(html_res_head2);
-          client.print(new_state);
+          client.print(RELAY_STATE ? 1 : 0);
           delay(10);
           client.stop();
           req_str = "";
@@ -4532,12 +4560,19 @@ void start_ap_mode(void) {
   // ボタンが離されるのを待機
   wait_button_released();
 
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(ap_ssid.c_str(), ap_pass.c_str());
+  // STAモードの干渉を排除: STA側の自動再接続を停止し切断
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(true);
+  delay(100);
+
+  // SoftAP単独モードで起動 (パスワードなし・オープンネットワーク)
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ap_ssid.c_str());
   delay(100);
   server.begin();
-  Serial.println("HTTP Server started in AP mode");
-  wifi_scan(); // 起動時に事前スキャンを実行（クライアント接続中のチャネル切替による切断を防止）
+  Serial.println("HTTP Server started in AP mode (Open Network)");
+  Serial.printf("SoftAP SSID: %s (No Password), IP: %s\n", ap_ssid.c_str(),
+                WiFi.softAPIP().toString().c_str());
 }
 
 // -----------------------------------------------------------------------------
@@ -4551,6 +4586,7 @@ void start_normal_mode(void) {
   digitalWrite(STATUS_LED, LOW);
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
 
   // ボタンが離されるのを待機
   wait_button_released();
@@ -4579,14 +4615,50 @@ void start_normal_mode(void) {
 // Arduino setup()
 // -----------------------------------------------------------------------------
 void setup() {
+
+#if defined(VST01R)
+  // serial1
+  // cxs(25)
   pinMode(XAP_BTN, INPUT);
-  pinMode(STATUS_LED, OUTPUT);
   pinMode(PULSE_IN, INPUT);
   pinMode(RELAY_OUT, OUTPUT);
   digitalWrite(RELAY_OUT, LOW);
-  pinMode(IO25_PIN, OUTPUT);
-  digitalWrite(IO25_PIN, HIGH);
+  // pinMode(CXS_PIN, OUTPUT);
+  // digitalWrite(CXS_PIN, HIGH);
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, LOW);
+  // serial2
+#endif
 
+#if defined(VST100)
+  // serial1
+  pinMode(CXS_PIN, OUTPUT);
+  digitalWrite(CXS_PIN, HIGH);
+  pinMode(XAP_BTN, INPUT);
+  pinMode(PULSE_IN, INPUT);
+  pinMode(RELAY_OUT, OUTPUT);
+  digitalWrite(RELAY_OUT, LOW);
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, LOW);
+  // serial2
+#endif
+
+#if defined(VST01)
+  pinMode(IO18_PIN, INPUT);
+  pinMode(IO19_PIN, INPUT);
+  pinMode(IO23_PIN, INPUT);
+  // serial1
+  pinMode(CXS_PIN, OUTPUT);
+  digitalWrite(CXS_PIN, HIGH);
+  pinMode(XAP_BTN, INPUT);
+  pinMode(PULSE_IN, INPUT);
+  pinMode(RELAY_OUT, OUTPUT);
+  digitalWrite(RELAY_OUT, LOW);
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, LOW);
+  // serial2
+#endif
+  RELAY_STATE = false;
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000); // 400kHz I2C Fast Mode (MCP3424の高速サンプリング用)
   Serial.begin(
