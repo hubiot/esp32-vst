@@ -23,6 +23,7 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <Wire.h>
+#include <ArduinoOTA.h>
 #include <algorithm>
 #include <math.h>
 
@@ -2518,6 +2519,7 @@ String html_tag2 =
 boolean eeprom_read(void);
 void eeprom_write(void);
 void wifi_connect(void);
+void setup_ota(void);
 void aws_connect(void);
 void setup_awsiot(void);
 void connect_awsiot(void);
@@ -3233,6 +3235,52 @@ void aws_connect(void) {
     timerAlarmDisable(timer);
 }
 
+bool ota_initialized = false;
+
+// -----------------------------------------------------------------------------
+// ArduinoOTA 初期化
+// -----------------------------------------------------------------------------
+void setup_ota(void) {
+  if (ota_initialized)
+    return;
+
+  // ホスト名設定 (esp32-vst.local でアクセス可能)
+  ArduinoOTA.setHostname("esp32-vst");
+
+  ArduinoOTA
+    .onStart([]() {
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH) {
+        type = "sketch";
+      } else { // U_SPIFFS
+        type = "filesystem";
+      }
+      Serial.println("\n[OTA] Start updating " + type);
+      // OTA書き込み中にWatchdogタイマーが発火しないよう停止
+      if (timer) {
+        timerAlarmDisable(timer);
+      }
+    })
+    .onEnd([]() {
+      Serial.println("\n[OTA] End. Rebooting...");
+    })
+    .onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("[OTA] Progress: %u%%\r", (progress / (total / 100)));
+    })
+    .onError([](ota_error_t error) {
+      Serial.printf("[OTA] Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+
+  ArduinoOTA.begin();
+  ota_initialized = true;
+  Serial.println("[OTA] ArduinoOTA ready (Hostname: esp32-vst, Port: 3232)");
+}
+
 void wifi_connect(void) {
   if (AP_MODE)
     return;
@@ -3266,6 +3314,11 @@ void wifi_connect(void) {
       WiFi.begin();
       i = 0;
     }
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("WiFi connected! IP address: ");
+    Serial.println(WiFi.localIP());
+    setup_ota();
   }
   if (time_adj_flag && !AP_MODE) {
     set_sysclcok();
@@ -4597,6 +4650,10 @@ void setup() {
 // Arduino loop() (通信・Web UI・MQTT・AP処理タスク)
 // -----------------------------------------------------------------------------
 void loop() {
+  // OTA処理 (WiFi接続待受)
+  if (ota_initialized) {
+    ArduinoOTA.handle();
+  }
 
   // APモード時: ボタン押下で即座に本体リセット
   if (AP_MODE) {
