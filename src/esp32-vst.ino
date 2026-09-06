@@ -20,6 +20,7 @@
 #include <EEPROM.h>
 #include <HTTPClient.h>
 #include <PubSubClient.h>
+#include <Update.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
@@ -1287,6 +1288,7 @@ const char *str_rex_noise_shake = R"rawliteral(
       <div class="nav-group">
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+        <a href="/web_ota" class="btn btn-secondary">☁️ ファームウェア バージョンアップ</a>
         <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -1432,6 +1434,7 @@ const char *str_rex_noise_shake_10min = R"rawliteral(
       <div class="nav-group">
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
+        <a href="/web_ota" class="btn btn-secondary">☁️ ファームウェア バージョンアップ</a>
         <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -1561,7 +1564,8 @@ const char *str_rex_rain = R"rawliteral(
       <div class="nav-group">
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
-        <a href="/shreshold_set/" class="btn btn-secondary">📊 しきい値 (Shreshold) 設定</a>
+        <a href="/shreshold_set/" class="btn btn-secondary">⚡ リレー動作設定値</a>
+        <a href="/web_ota" class="btn btn-secondary">☁️ ファームウェア バージョンアップ</a>
         <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -1684,6 +1688,7 @@ const char *str_normal_4ch_cloud = R"rawliteral(
         <a href="/wifi_set/" class="btn btn-secondary">📶 WiFi 設定</a>
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/ave_normal_set/" class="btn btn-secondary">📈 平均 / 瞬時値 設定</a>
+        <a href="/web_ota" class="btn btn-secondary">☁️ ファームウェア バージョンアップ</a>
         <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -1811,6 +1816,7 @@ const char *str_normal_4ch_local = R"rawliteral(
         <a href="/param_set/" class="btn btn-secondary">⚙️ キャリブレーション</a>
         <a href="/meas_period_set/" class="btn btn-secondary">⏱️ 測定周期 設定</a>
         <a href="/host_ip_set/" class="btn btn-secondary">🌐 サーバ IP 設定</a>
+        <a href="/web_ota" class="btn btn-secondary">☁️ ファームウェア バージョンアップ</a>
         <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -2065,7 +2071,7 @@ const char *str_shreshold = R"rawliteral(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>しきい値設定 - VST</title>
+    <title>リレー動作設定値 - VST</title>
     <style>
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -2126,18 +2132,18 @@ const char *str_shreshold = R"rawliteral(
   </head>
   <body>
     <div class="container">
-      <div class="main-title">しきい値 (Shreshold) 設定</div>
+      <div class="main-title">リレー動作設定値</div>
 
       <div class="card">
         <div class="card-title">現在のステータス</div>
         <div class="info-row">
-          <span class="info-label">現在のしきい値:</span>
+          <span class="info-label">現在の設定値:</span>
           <span id="shreshold_val" class="info-value">-</span>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title">しきい値の変更 (0 〜 9999.9)</div>
+        <div class="card-title">設定値の変更 (0 〜 9999.9)</div>
         <form>
           <input type='text' name='shreshold_param' placeholder='設定値を入力'>
           <button type='submit' name='shreshold_submit' value='send' class="btn-submit">設定を保存</button>
@@ -2317,6 +2323,296 @@ const char *str_ave_normal = R"rawliteral(
     }
   </script>
 </html>)rawliteral";
+
+const char *str_web_ota = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ファームウェア バージョンアップ - VST</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #f1f5f9;
+        margin: 0; padding: 24px 16px; color: #0f172a; min-height: 100vh;
+        box-sizing: border-box; text-align: center;
+      }
+      .container {
+        width: 100%; max-width: 600px; margin: 0 auto; box-sizing: border-box;
+      }
+      .main-title {
+        font-size: 26px; font-weight: 800; color: #0f172a; margin: 8px 0 20px 0;
+      }
+      .card {
+        background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px;
+        padding: 24px 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: left; box-sizing: border-box;
+      }
+      .card-title {
+        font-size: 14px; font-weight: 700; color: #475569; margin-bottom: 16px;
+        display: flex; align-items: center; gap: 8px;
+      }
+      .drop-zone {
+        border: 2px dashed #94a3b8; border-radius: 12px; padding: 28px 16px;
+        text-align: center; cursor: pointer; background: #f8fafc;
+        transition: all 0.2s ease;
+      }
+      .drop-zone:hover, .drop-zone.dragover {
+        border-color: #0284c7; background: #f0f9ff;
+      }
+      .drop-icon { font-size: 40px; margin-bottom: 8px; }
+      .drop-text { font-size: 15px; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
+      .drop-subtext { font-size: 13px; color: #64748b; }
+      .file-info {
+        display: none; margin-top: 14px; padding: 12px 14px; background: #f0f9ff;
+        border: 1.5px solid #bae6fd; border-radius: 10px; font-size: 14px;
+        color: #0369a1; word-break: break-all;
+      }
+      .btn {
+        display: block; text-decoration: none; padding: 15px 20px; border-radius: 12px;
+        font-size: 16px; font-weight: 700; transition: all 0.2s ease; box-sizing: border-box;
+        text-align: center; width: 100%; border: none; cursor: pointer;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+        margin-top: 16px;
+      }
+      .btn-primary:hover:not(:disabled) {
+        transform: translateY(-1px); box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35);
+      }
+      .btn-primary:disabled {
+        opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none;
+      }
+      .btn-secondary {
+        background: #ffffff; color: #334155; border: 1.5px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+      }
+      .btn-secondary:hover {
+        background: #f8fafc; border-color: #94a3b8; transform: translateY(-1px);
+      }
+      .progress-section { display: none; margin-top: 20px; }
+      .progress-label-row {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 8px; font-size: 14px; font-weight: 700; color: #334155;
+      }
+      .progress-track {
+        background: #e2e8f0; border-radius: 10px; height: 18px; overflow: hidden;
+      }
+      .progress-bar {
+        background: linear-gradient(90deg, #0284c7, #06b6d4);
+        height: 100%; width: 0%; border-radius: 10px;
+        transition: width 0.15s ease-out;
+      }
+      .status-box {
+        margin-top: 14px; padding: 14px 16px; border-radius: 10px;
+        font-size: 14px; font-weight: 700; text-align: center; line-height: 1.5;
+      }
+      .status-loading { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+      .status-success { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+      .status-error { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+      .notice-box {
+        background: #fffbeb; border: 1px solid #fef08a; border-radius: 12px;
+        padding: 14px 16px; font-size: 13px; color: #854d0e; line-height: 1.6;
+        margin-top: 18px;
+      }
+      .notice-box ul { margin: 6px 0 0 0; padding-left: 20px; }
+      .notice-box li { margin-bottom: 4px; }
+      .nav-group { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="main-title">ファームウェア バージョンアップ</div>
+
+      <div class="card" style="padding: 16px 20px; margin-bottom: 16px;">
+        <div style="font-size: 13px; font-weight: 700; color: #475569; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+          <span>ℹ️</span> チップ・フラッシュ情報
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
+          <div><span style="color:#64748b;">チップ型番:</span> <strong id="info_chip" style="color:#1e293b;">取得中...</strong></div>
+          <div><span style="color:#64748b;">物理Flash容量:</span> <strong id="info_flash" style="color:#0284c7;">取得中...</strong></div>
+          <div><span style="color:#64748b;">OTA割当領域:</span> <strong id="info_ota" style="color:#16a34a;">取得中...</strong></div>
+          <div><span style="color:#64748b;">MACアドレス:</span> <strong id="info_mac" style="color:#475569;">取得中...</strong></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📦 ファームウェア選択</div>
+
+        <input type="file" id="fw_file" accept=".bin" style="display:none;" onchange="handleFile(this.files[0])">
+        <div class="drop-zone" id="drop_zone" onclick="document.getElementById('fw_file').click()">
+          <div class="drop-icon">☁️</div>
+          <div class="drop-text" id="drop_text">クリックして .bin ファイルを選択</div>
+          <div class="drop-subtext">またはファイルをここにドラッグ＆ドロップ</div>
+        </div>
+
+        <div class="file-info" id="file_info"></div>
+
+        <button type="button" class="btn btn-primary" id="btn_upload" disabled onclick="confirmAndUpload()">
+          🚀 アップデート開始
+        </button>
+
+        <div class="progress-section" id="progress_section">
+          <div class="progress-label-row">
+            <span id="progress_status">アップロード中...</span>
+            <span id="progress_percent">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-bar" id="progress_bar"></div>
+          </div>
+          <div id="status_msg"></div>
+        </div>
+
+        <div class="notice-box">
+          <strong>⚠️ アップデート時の注意:</strong>
+          <ul>
+            <li>書き込み中は本体の電源を切ったりブラウザを閉じたりしないでください。</li>
+            <li>バージョンアップ完了後、自動的に本体が再起動します。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <a href="/" class="btn btn-secondary">🏠 ホームに戻る</a>
+      </div>
+    </div>
+
+    <script>
+      var selectedFile = null;
+      var dropZone = document.getElementById('drop_zone');
+
+      dropZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      });
+      dropZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+      });
+      dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+          handleFile(e.dataTransfer.files[0]);
+        }
+      });
+
+      function handleFile(file) {
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.bin')) {
+          alert('選択されたファイルは .bin 形式ではありません。ファームウェアバイナリ(.bin)を指定してください。');
+          return;
+        }
+        selectedFile = file;
+        var info = document.getElementById('file_info');
+        var sz = (file.size >= 1048576) ? (file.size / 1048576).toFixed(2) + ' MB' : (file.size / 1024).toFixed(1) + ' KB';
+        info.innerHTML = '<strong>選択中:</strong> ' + file.name + ' (' + sz + ')';
+        info.style.display = 'block';
+        document.getElementById('drop_text').innerText = 'ファイル選択済み: ' + file.name;
+        var btn = document.getElementById('btn_upload');
+        btn.disabled = false;
+      }
+
+      function confirmAndUpload() {
+        if (!selectedFile) return;
+        if (!confirm('ファームウェア (' + selectedFile.name + ') を本体に書き込みますか？\n\n※書き込み完了後、自動的に本体が再起動します。')) {
+          return;
+        }
+
+        var btn = document.getElementById('btn_upload');
+        var dz = document.getElementById('drop_zone');
+        var pSec = document.getElementById('progress_section');
+        var pBar = document.getElementById('progress_bar');
+        var pPercent = document.getElementById('progress_percent');
+        var pStatus = document.getElementById('progress_status');
+        var statusMsg = document.getElementById('status_msg');
+
+        btn.disabled = true;
+        dz.style.pointerEvents = 'none';
+        dz.style.opacity = '0.6';
+        pSec.style.display = 'block';
+        statusMsg.innerHTML = '<div class="status-box status-loading">⏳ アップロード中... 電源を切らないでください</div>';
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/web_ota_upload', true);
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+        xhr.upload.onprogress = function(e) {
+          if (e.lengthComputable) {
+            var pct = Math.round((e.loaded / e.total) * 100);
+            pBar.style.width = pct + '%';
+            pPercent.innerText = pct + '%';
+            var loadedStr = (e.loaded / 1048576).toFixed(2) + ' MB';
+            var totalStr = (e.total / 1048576).toFixed(2) + ' MB';
+            pStatus.innerText = 'アップロード中... (' + loadedStr + ' / ' + totalStr + ')';
+            if (pct >= 100) {
+              pStatus.innerText = '書き込み検証中...';
+              statusMsg.innerHTML = '<div class="status-box status-loading">💾 フラッシュ書き込み検証中... しばらくお待ちください</div>';
+            }
+          }
+        };
+
+        xhr.onload = function() {
+          if (xhr.status === 200) {
+            pBar.style.width = '100%';
+            pPercent.innerText = '100%';
+            pStatus.innerText = '完了';
+            statusMsg.innerHTML = '<div class="status-box status-success">✅ アップデート成功！本体を再起動しています...</div>';
+            setTimeout(function() {
+              window.location.href = '/';
+            }, 6000);
+          } else {
+            statusMsg.innerHTML = '<div class="status-box status-error">❌ アップデート失敗 (HTTP ' + xhr.status + ')<br>' + (xhr.responseText || '') + '</div>';
+            btn.disabled = false;
+            dz.style.pointerEvents = 'auto';
+            dz.style.opacity = '1';
+          }
+        };
+
+        xhr.onerror = function() {
+          var currWidth = parseInt(pBar.style.width) || 0;
+          if (currWidth >= 95) {
+            pBar.style.width = '100%';
+            pPercent.innerText = '100%';
+            pStatus.innerText = '完了';
+            statusMsg.innerHTML = '<div class="status-box status-success">✅ 本体が再起動しています...<br><small style="display:inline-block;margin-top:6px;">約5秒後に自動的にホーム画面へ移動します</small></div>';
+            setTimeout(function() {
+              window.location.href = '/';
+            }, 6000);
+          } else {
+            statusMsg.innerHTML = '<div class="status-box status-error">❌ 通信エラーが発生しました。接続を確認して再試行してください。</div>';
+            btn.disabled = false;
+            dz.style.pointerEvents = 'auto';
+            dz.style.opacity = '1';
+          }
+        };
+
+        xhr.send(selectedFile);
+      }
+
+      function loadChipInfo() {
+        var xhr = new XMLHttpRequest();
+        xhr.onreadystatechange = function() {
+          if (this.readyState == 4 && this.status == 200) {
+            var parts = this.responseText.split(',');
+            if (parts.length >= 4) {
+              document.getElementById('info_chip').innerText = parts[0];
+              document.getElementById('info_flash').innerText = parts[1];
+              document.getElementById('info_ota').innerText = parts[2];
+              document.getElementById('info_mac').innerText = parts[3];
+            }
+          }
+        };
+        xhr.open('GET', '/disp_chip_info', true);
+        xhr.send(null);
+      }
+      window.onload = loadChipInfo;
+    </script>
+  </body>
+</html>
+)rawliteral";
 
 String html_res_head = "HTTP/1.1 200 OK\r\nContent-type:text/html; "
                        "charset=utf-8\r\nConnection:close\r\n\r\n";
@@ -2537,6 +2833,7 @@ boolean eeprom_read(void);
 void eeprom_write(void);
 void wifi_connect(void);
 void setup_ota(void);
+void handle_web_ota_upload(void);
 void aws_connect(void);
 void setup_awsiot(void);
 void connect_awsiot(void);
@@ -4060,6 +4357,154 @@ void favicon_response() {
   client.stop();
 }
 
+// -----------------------------------------------------------------------------
+// Web OTA ファームウェアアップロード処理
+// -----------------------------------------------------------------------------
+void handle_web_ota_upload() {
+  size_t contentLength = 0;
+  unsigned long headerStartTime = millis();
+
+  // HTTPヘッダーを読み込み、Content-Lengthを取得
+  while (client.connected() && (millis() - headerStartTime < 5000)) {
+    if (client.available()) {
+      String line = client.readStringUntil('\n');
+      if (line == "\r" || line.length() == 0) {
+        break; // 空行でヘッダー終了
+      }
+      String lineLower = line;
+      lineLower.toLowerCase();
+      if (lineLower.startsWith("content-length:")) {
+        contentLength = line.substring(15).toInt();
+      } else if (lineLower.indexOf("expect: 100-continue") >= 0) {
+        client.print(F("HTTP/1.1 100 Continue\r\n\r\n"));
+      }
+    } else {
+      delay(2);
+    }
+  }
+
+  Serial.printf("[Web OTA] Upload started. Content-Length: %u bytes\n",
+                (unsigned int)contentLength);
+
+  if (contentLength == 0) {
+    Serial.println("[Web OTA] Error: Content-Length is 0");
+    client.print(
+        F("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; "
+          "charset=utf-8\r\nConnection: close\r\n\r\nContent-Lengthが0です"));
+    delay(10);
+    client.stop();
+    return;
+  }
+
+  // 空きフラッシュ容量のチェック
+  size_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+  if (contentLength > maxSketchSpace) {
+    Serial.printf("[Web OTA] Error: Size %u exceeds max sketch space %u\n",
+                  (unsigned int)contentLength, (unsigned int)maxSketchSpace);
+    client.print(F("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; "
+                   "charset=utf-8\r\nConnection: "
+                   "close\r\n\r\nファイルサイズが空き領域を超えています"));
+    delay(10);
+    client.stop();
+    return;
+  }
+
+  // OTA書き込み中にWatchdogタイマーが発火しないよう停止
+  if (timer) {
+    timerAlarmDisable(timer);
+  }
+
+  // フラッシュ書き込み中のCore 1測定タスクを一時停止
+  if (measTaskHandle != NULL) {
+    vTaskSuspend(measTaskHandle);
+  }
+
+  if (!Update.begin(contentLength)) {
+    Serial.print("[Web OTA] Update.begin error: ");
+    Update.printError(Serial);
+    client.print(F("HTTP/1.1 500 Internal Server Error\r\nContent-Type: "
+                   "text/plain; charset=utf-8\r\nConnection: "
+                   "close\r\n\r\nUpdate.beginに失敗しました: "));
+    client.print(Update.errorString());
+    delay(10);
+    client.stop();
+    if (measTaskHandle != NULL) {
+      vTaskResume(measTaskHandle);
+    }
+    return;
+  }
+
+  // 1024バイト単位でバイナリデータを受信＆フラッシュ書き込み
+  uint8_t buf[1024];
+  size_t totalWritten = 0;
+  unsigned long lastDataTime = millis();
+  bool writeSuccess = true;
+
+  while (totalWritten < contentLength) {
+    if (client.available()) {
+      size_t toRead = client.available();
+      if (toRead > sizeof(buf))
+        toRead = sizeof(buf);
+      if (toRead > (contentLength - totalWritten))
+        toRead = contentLength - totalWritten;
+
+      size_t bytesRead = client.readBytes(buf, toRead);
+      if (bytesRead > 0) {
+        size_t bytesWritten = Update.write(buf, bytesRead);
+        if (bytesWritten != bytesRead) {
+          Serial.printf(
+              "[Web OTA] Update.write failed! Read: %u, Written: %u\n",
+              (unsigned int)bytesRead, (unsigned int)bytesWritten);
+          writeSuccess = false;
+          break;
+        }
+        totalWritten += bytesWritten;
+        lastDataTime = millis();
+      }
+    } else {
+      if (!client.connected()) {
+        Serial.printf("[Web OTA] Client disconnected! Written: %u/%u\n",
+                      (unsigned int)totalWritten, (unsigned int)contentLength);
+        writeSuccess = false;
+        break;
+      }
+      if (millis() - lastDataTime > 20000) {
+        Serial.println("[Web OTA] Timeout waiting for data");
+        writeSuccess = false;
+        break;
+      }
+      delay(2);
+    }
+  }
+
+  if (writeSuccess && totalWritten == contentLength && Update.end(true)) {
+    if (Update.isFinished()) {
+      Serial.println("\n[Web OTA] Update successful! Sending response...");
+      client.print(F("HTTP/1.1 200 OK\r\nContent-Type: text/plain; "
+                     "charset=utf-8\r\nConnection: close\r\n\r\nOK"));
+      client.flush();
+      delay(300);
+      client.stop();
+      delay(200);
+      esp_restart();
+      return;
+    }
+  }
+
+  Serial.printf("[Web OTA] Update failed! Written: %u/%u, Error: ",
+                (unsigned int)totalWritten, (unsigned int)contentLength);
+  Update.printError(Serial);
+  client.print(F("HTTP/1.1 500 Internal Server Error\r\nContent-Type: "
+                 "text/plain; charset=utf-8\r\nConnection: "
+                 "close\r\n\r\nUpdate書き込みに失敗しました: "));
+  client.print(Update.errorString());
+  delay(10);
+  client.stop();
+  if (measTaskHandle != NULL) {
+    vTaskResume(measTaskHandle);
+  }
+}
+
 void wifi_access_point() {
   static String pre_url;
   client = server.available();
@@ -4401,6 +4846,29 @@ void wifi_access_point() {
           delay(10);
           client.stop();
           req_str = "";
+        } else if (req_str.indexOf("GET /disp_chip_info") >= 0) {
+          client.print(html_res_head2);
+          String stmp = String(ESP.getChipModel()) + " (Rev " +
+                        String(ESP.getChipRevision()) + ")," +
+                        String(ESP.getFlashChipSize() / (1024 * 1024)) +
+                        " MB (" + String(ESP.getFlashChipSize()) + " bytes)," +
+                        String(ESP.getFreeSketchSpace() / (1024 * 1024.0), 2) +
+                        " MB," + get_hardware_mac();
+          client.print(stmp.c_str());
+          delay(10);
+          client.stop();
+          req_str = "";
+        } else if (req_str.indexOf("GET /web_ota") >= 0) {
+          pre_url = "GET /web_ota";
+          client.print(html_res_head);
+          client.print(str_web_ota);
+          delay(10);
+          client.stop();
+          req_str = "";
+        } else if (req_str.indexOf("POST /web_ota_upload") >= 0) {
+          handle_web_ota_upload();
+          req_str = "";
+          break;
         } else if (req_str.indexOf("GET /favicon") >= 0) {
           PAGE_NUM = 0;
           favicon_response();
@@ -4450,6 +4918,8 @@ void wifi_access_point() {
             client.print(str_ave_normal);
           else if (pre_url.indexOf("GET /shreshold_set") >= 0)
             client.print(str_shreshold);
+          else if (pre_url.indexOf("GET /web_ota") >= 0)
+            client.print(str_web_ota);
           else
             client.print(str_normal_4ch_cloud);
           delay(10);
