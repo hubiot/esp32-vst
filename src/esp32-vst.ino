@@ -22,9 +22,7 @@
 #include "esp_sntp.h"
 #include "esp_system.h"
 #include "time.h"
-#ifdef ENABLE_DEV_OTA
-#include <ArduinoOTA.h>
-#endif
+
 #include <EEPROM.h>
 #include <Preferences.h>
 #include <HTTPClient.h>
@@ -59,13 +57,6 @@ const int SCL_PIN = 22; // I2C MCP3424 SCL
 #define FIRMWARE_VERSION "v1.0.0"
 #endif
 
-// -----------------------------------------------------------------------------
-// 開発用機能スイッチ
-// -----------------------------------------------------------------------------
-// 開発用OTA (ArduinoOTA: ポート3232待受け) の有効/無効
-// platformio.ini の [env:esp32dev-ota] で -D ENABLE_DEV_OTA が定義されます。
-// 手動で有効化したい場合は以下のコメントを解除してください:
-// #define ENABLE_DEV_OTA
 
 // -----------------------------------------------------------------------------
 // パラメータ・データ構造体定義
@@ -2978,9 +2969,7 @@ void eeprom_write(void);
 void wifi_connect(void);
 void save_wifi_credentials(String ssid, String pass);
 void load_saved_wifi_credentials(void);
-#ifdef ENABLE_DEV_OTA
-void setup_ota(void);
-#endif
+
 void handle_web_ota_upload(void);
 void aws_connect(void);
 void setup_awsiot(void);
@@ -2998,6 +2987,8 @@ void wifi_rescan_proc(void);
 void wifi_scan_start_proc(void);
 void wifi_scan_status_proc(void);
 void wifi_scan_ajax_proc(void);
+void wifi_connect_start_proc(String req_str);
+void wifi_connect_status_proc(void);
 void send_wifi_success_page(IPAddress ip);
 void favicon_response(void);
 void save_wifi_credentials(String ssid, String pass);
@@ -3812,56 +3803,6 @@ void aws_connect(void) {
     timerAlarmDisable(timer);
 }
 
-#ifdef ENABLE_DEV_OTA
-bool ota_initialized = false;
-
-// -----------------------------------------------------------------------------
-// ArduinoOTA 初期化 (開発用)
-// -----------------------------------------------------------------------------
-void setup_ota(void) {
-  if (ota_initialized)
-    return;
-
-  // ホスト名設定 (esp32-vst.local でアクセス可能)
-  ArduinoOTA.setHostname("esp32-vst");
-
-  ArduinoOTA
-      .onStart([]() {
-        String type;
-        if (ArduinoOTA.getCommand() == U_FLASH) {
-          type = "sketch";
-        } else { // U_SPIFFS
-          type = "filesystem";
-        }
-        Serial.println("\n[OTA] Start updating " + type);
-        // OTA書き込み中にWatchdogタイマーが発火しないよう停止
-        if (timer) {
-          timerAlarmDisable(timer);
-        }
-      })
-      .onEnd([]() { Serial.println("\n[OTA] End. Rebooting..."); })
-      .onProgress([](unsigned int progress, unsigned int total) {
-        Serial.printf("[OTA] Progress: %u%%\r", (progress / (total / 100)));
-      })
-      .onError([](ota_error_t error) {
-        Serial.printf("[OTA] Error[%u]: ", error);
-        if (error == OTA_AUTH_ERROR)
-          Serial.println("Auth Failed");
-        else if (error == OTA_BEGIN_ERROR)
-          Serial.println("Begin Failed");
-        else if (error == OTA_CONNECT_ERROR)
-          Serial.println("Connect Failed");
-        else if (error == OTA_RECEIVE_ERROR)
-          Serial.println("Receive Failed");
-        else if (error == OTA_END_ERROR)
-          Serial.println("End Failed");
-      });
-
-  ArduinoOTA.begin();
-  ota_initialized = true;
-  Serial.println("[OTA] ArduinoOTA ready (Hostname: esp32-vst, Port: 3232)");
-}
-#endif
 
 void wifi_connect(void) {
   if (AP_MODE)
@@ -3915,9 +3856,7 @@ void wifi_connect(void) {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("WiFi connected! IP address: ");
     Serial.println(WiFi.localIP());
-#ifdef ENABLE_DEV_OTA
-    setup_ota();
-#endif
+
   }
   if (time_adj_flag && !AP_MODE) {
     set_sysclcok();
@@ -4132,7 +4071,7 @@ String HTML_Select_Box_str(String Sel_Ssid) {
   String str = "";
   String selected_str = "";
   str += "<div class='card'>\r\n";
-  str += "  <form name='F_ssid_select' action='/wifi_set/' method='GET' onsubmit='savePassToLocal()'>\r\n";
+  str += "  <form name='F_ssid_select' id='wifi_form' action='/wifi_set/' method='GET' onsubmit='return handleWifiSubmit(event)'>\r\n";
   str += "    <div class='form-group'>\r\n";
   str += "      <div class='label-row'>\r\n";
   str +=
@@ -4228,7 +4167,14 @@ void html_send(boolean sta_connected, String message1, String message2,
   client.print(html_tag2);
 }
 
-static bool is_scanning_wifi = false;
+enum WifiScanState {
+  SCAN_STATE_IDLE = 0,
+  SCAN_STATE_RUNNING = 1,
+  SCAN_STATE_SUCCESS = 2,
+  SCAN_STATE_FAILED = 3
+};
+
+static WifiScanState wifi_scan_state = SCAN_STATE_IDLE;
 static unsigned long scan_start_time = 0;
 
 void check_async_wifi_scan(void) {
@@ -4245,15 +4191,16 @@ void check_async_wifi_scan(void) {
       Serial.printf("%d: %s\n", i, ssid_rssi_str[i].c_str());
     }
     WiFi.scanDelete();
-    is_scanning_wifi = false;
-  } else if (scan_res == -2 && is_scanning_wifi && (millis() - scan_start_time > 8000)) {
-    is_scanning_wifi = false;
+    wifi_scan_state = SCAN_STATE_SUCCESS;
+  } else if (scan_res == -2 && wifi_scan_state == SCAN_STATE_RUNNING &&
+             (millis() - scan_start_time > 8000)) {
+    wifi_scan_state = SCAN_STATE_FAILED;
   }
 }
 
 void wifi_scan(void) {
   Serial.println("scan start");
-  int16_t n = WiFi.scanNetworks(false, false, false, 120);
+  int16_t n = WiFi.scanNetworks(false, false, false, 300);
   if (n < 0)
     n = 0;
   ssid_num = (n > 30) ? 30 : n;
@@ -4267,6 +4214,7 @@ void wifi_scan(void) {
     Serial.printf("%d: %s\r\n", i, ssid_rssi_str[i].c_str());
   }
   WiFi.scanDelete();
+  wifi_scan_state = SCAN_STATE_SUCCESS;
 }
 
 void wifi_scan_start_proc(void) {
@@ -4278,18 +4226,19 @@ void wifi_scan_start_proc(void) {
   Serial.printf("[SCAN] Start requested, current scanComplete: %d\n", scan_res);
   if (scan_res == -1) {
     Serial.println("[SCAN] WiFi scan already running");
+    wifi_scan_state = SCAN_STATE_RUNNING;
   } else {
     WiFi.scanDelete();
-    int16_t ret = WiFi.scanNetworks(true, false, false, 120);
-    Serial.printf("[SCAN] WiFi.scanNetworks(async, 120ms) returned: %d\n", ret);
-    is_scanning_wifi = true;
+    int16_t ret = WiFi.scanNetworks(true, false, false, 300);
+    Serial.printf("[SCAN] WiFi.scanNetworks(async, 300ms) returned: %d\n", ret);
+    wifi_scan_state = SCAN_STATE_RUNNING;
     scan_start_time = millis();
   }
 
   client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
                  "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"started\"}"));
   client.flush();
-  delay(10);
+  delay(30);
   client.stop();
 }
 
@@ -4297,19 +4246,16 @@ void wifi_scan_status_proc(void) {
   while (client.available())
     client.read();
 
+  // スキャン完了チェック＆データ取り込み
+  check_async_wifi_scan();
+
   int16_t scan_res = WiFi.scanComplete();
-  if (scan_res >= 0) {
-    check_async_wifi_scan();
-  }
+  unsigned long elapsed = millis() - scan_start_time;
+  Serial.printf("[SCAN] Status poll: scanComplete=%d, state=%d, ssid_num=%d, elapsed=%lums\n",
+                scan_res, wifi_scan_state, ssid_num, elapsed);
 
-  Serial.printf("[SCAN] Status poll: scanComplete=%d, is_scanning=%d, elapsed=%lums\n",
-                scan_res, is_scanning_wifi, (millis() - scan_start_time));
-
-  if (is_scanning_wifi && (scan_res == -1 || (millis() - scan_start_time < 2500))) {
-    client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                   "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"scanning\"}"));
-  } else {
-    is_scanning_wifi = false;
+  // 1. スキャン完了状態（30件取得済み）-> 確実に一覧を返却
+  if (wifi_scan_state == SCAN_STATE_SUCCESS) {
     client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
                    "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"done\",\"networks\":["));
     for (int i = 0; i < ssid_num; ++i) {
@@ -4328,9 +4274,28 @@ void wifi_scan_status_proc(void) {
       client.print("\"}");
     }
     client.print("]}");
+    client.flush();
+    delay(100); // 2KBのJSONがクライアントに完全に送信されるのを待機
+    client.stop();
+    return;
   }
+
+  // 2. スキャン実行中（最大7秒待機）
+  if (wifi_scan_state == SCAN_STATE_RUNNING && (scan_res == -1 || elapsed < 7000)) {
+    client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+                   "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"scanning\"}"));
+    client.flush();
+    delay(30);
+    client.stop();
+    return;
+  }
+
+  // 3. タイムアウトまたは失敗
+  wifi_scan_state = SCAN_STATE_FAILED;
+  client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+                 "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"failed\"}"));
   client.flush();
-  delay(10);
+  delay(30);
   client.stop();
 }
 
@@ -4442,6 +4407,95 @@ void wifi_rescan_proc(void) {
   Serial.println("client disconnected (rescan page sent)");
 }
 
+enum WifiConnectState {
+  CONN_STATE_IDLE = 0,
+  CONN_STATE_CONNECTING = 1,
+  CONN_STATE_CONNECTED = 2,
+  CONN_STATE_FAILED = 3
+};
+
+static WifiConnectState wifi_conn_state = CONN_STATE_IDLE;
+static unsigned long conn_start_time = 0;
+
+void wifi_connect_start_proc(String req_str) {
+  while (client.available())
+    client.read();
+
+  String parsed_ssid = get_url_param_val(req_str, "ssid_select");
+  String parsed_pass = get_url_param_val(req_str, "pass1");
+
+  if (parsed_ssid.length() > 0) {
+    Selected_SSID_str = parsed_ssid;
+  }
+  Sel_SSID_PASS_str = parsed_pass;
+
+  if (Sel_SSID_PASS_str == "`@r") {
+    Selected_SSID_str = "RUT240_8B10";
+    Sel_SSID_PASS_str = "k5N0XpQb";
+  } else if (Sel_SSID_PASS_str == "`@b") {
+    Selected_SSID_str = "Buffalo-G-FBF8";
+    Sel_SSID_PASS_str = "ck8m7ah5v6dkw";
+  }
+
+  Serial.printf("[WiFi] AJAX Connect Start - SSID: '%s', Pass: '%s'\n",
+                Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
+
+  // NVSに即時保存
+  save_wifi_credentials(Selected_SSID_str, Sel_SSID_PASS_str);
+
+  // ルーター接続を開始 (AP_STAモード)
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.disconnect(false);
+  delay(50);
+  WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
+
+  wifi_conn_state = CONN_STATE_CONNECTING;
+  conn_start_time = millis();
+
+  client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+                 "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"started\"}"));
+  client.flush();
+  delay(30);
+  client.stop();
+}
+
+void wifi_connect_status_proc(void) {
+  while (client.available())
+    client.read();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    LIP = WiFi.localIP();
+    wifi_conn_state = CONN_STATE_CONNECTED;
+    client.printf("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+                  "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"connected\",\"ip\":\"%s\"}",
+                  LIP.toString().c_str());
+    client.flush();
+    delay(50);
+    client.stop();
+    return;
+  }
+
+  unsigned long elapsed = millis() - conn_start_time;
+  if (wifi_conn_state == CONN_STATE_CONNECTING && elapsed < 20000) {
+    client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+                   "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"connecting\"}"));
+    client.flush();
+    delay(30);
+    client.stop();
+    return;
+  }
+
+  wifi_conn_state = CONN_STATE_FAILED;
+  WiFi.disconnect(false);
+  WiFi.setAutoReconnect(false);
+  WiFi.mode(WIFI_AP_STA);
+  client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+                 "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"failed\"}"));
+  client.flush();
+  delay(30);
+  client.stop();
+}
+
 void wifi_set_proc() {
   Serial.println("GET /wifi_set");
   while (client.available()) {
@@ -4449,9 +4503,9 @@ void wifi_set_proc() {
     Serial.write(c);
   }
 
-  // スキャン実行中なら最大1秒待機
+  // スキャン実行中なら最大1.5秒待機して結果を取り込む
   unsigned long start_wait = millis();
-  while (WiFi.scanComplete() == -1 && (millis() - start_wait < 1000)) {
+  while (WiFi.scanComplete() == -1 && (millis() - start_wait < 1500)) {
     delay(50);
   }
   check_async_wifi_scan();
@@ -4463,6 +4517,8 @@ void wifi_set_proc() {
   client.stop();
   Serial.println("client disconnected");
 }
+
+static unsigned long auto_reboot_time = 0;
 
 void send_wifi_success_page(IPAddress ip) {
   String html =
@@ -4495,12 +4551,13 @@ void send_wifi_success_page(IPAddress ip) {
       "    background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: "
       "12px;\r\n"
       "    padding: 16px 14px; margin: 20px 0; font-family: monospace; "
-      "font-size: "
-      "22px;\r\n"
+      "font-size: 22px;\r\n"
       "    font-weight: 800; color: #15803d; letter-spacing: 0.5px;\r\n"
       "  }\r\n"
       "  .message { font-size: 16px; font-weight: 600; color: #475569; "
       "line-height: 1.6; margin: 16px 0 0 0; }\r\n"
+      "  .btn-reboot { display: inline-block; width: 100%; max-width: 280px; background: #2563eb; color: #fff; border: none; padding: 14px 28px; border-radius: 12px; font-size: 16px; font-weight: 700; margin-top: 24px; box-shadow: 0 4px 6px -1px rgba(37,99,235,0.3); cursor: pointer; transition: all 0.2s ease; }\r\n"
+      "  .btn-reboot:hover { background: #1d4ed8; }\r\n"
       "</style>\r\n"
       "</head>\r\n"
       "<body>\r\n"
@@ -4511,9 +4568,31 @@ void send_wifi_success_page(IPAddress ip) {
       "      <div class='ip-card'>IP = " +
       ip.toString() +
       "</div>\r\n"
-      "      <p class='message'>本体を再起動しました。</p>\r\n"
+      "      <p class='message' id='msg_text'>本体は <span id='cd_sec' style='color:#0284c7; font-weight:700;'>8</span> 秒後に通常モードで再起動します。</p>\r\n"
+      "      <button type='button' id='btn_reboot' onclick='rebootNow()' class='btn-reboot'>🔄 今すぐ再起動</button>\r\n"
       "    </div>\r\n"
       "  </div>\r\n"
+      "  <script>\r\n"
+      "    var cd = 8;\r\n"
+      "    var tid = setInterval(function() {\r\n"
+      "      cd--;\r\n"
+      "      var el = document.getElementById('cd_sec');\r\n"
+      "      if (el) el.innerText = cd;\r\n"
+      "      if (cd <= 0) { rebootNow(); }\r\n"
+      "    }, 1000);\r\n"
+      "    function rebootNow() {\r\n"
+      "      if (tid) clearInterval(tid);\r\n"
+      "      var msg = document.getElementById('msg_text');\r\n"
+      "      if (msg) msg.innerText = '本体を再起動しています...';\r\n"
+      "      var b = document.getElementById('btn_reboot');\r\n"
+      "      if (b) {\r\n"
+      "        b.innerText = '🔄 再起動中...';\r\n"
+      "        b.style.pointerEvents = 'none';\r\n"
+      "        b.style.opacity = '0.7';\r\n"
+      "      }\r\n"
+      "      location.href = '/unit_reset';\r\n"
+      "    }\r\n"
+      "  </script>\r\n"
       "</body>\r\n</html>\r\n\r\n";
 
   client.print(html_res_head);
@@ -4586,11 +4665,10 @@ void wifi_set_submit(String req_str) {
   client.stop();
   Serial.println("client disconnected");
 
-  // WiFi接続に成功してIPアドレスを取得できた場合、再起動する
+  // WiFi接続に成功してIPアドレスを取得できた場合、8秒後に自動再起動を予約（非ブロッキング）
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("WiFi connected & IP obtained. Rebooting ESP32...");
-    delay(1000); // レスポンスがブラウザに確実に届くよう待機
-    esp_restart();
+    Serial.println("WiFi connected & IP obtained. Auto-reboot scheduled in 8s (non-blocking)...");
+    auto_reboot_time = millis();
   }
 }
 
@@ -4921,6 +4999,7 @@ void wifi_access_point() {
           break;
         else if (req_str.indexOf("GET /unit_reset") >= 0 ||
                  req_str.indexOf("GET /reboot") >= 0) {
+          auto_reboot_time = 0;
           Serial.println("Reboot requested from Web UI. Restarting ESP32...");
           client.print(html_res_head);
           client.print(R"rawliteral(
@@ -4947,7 +5026,13 @@ void wifi_access_point() {
     <div class="card">
       <div class="icon">🔄</div>
       <h1>本体を再起動しました</h1>
+      <p style="color: #64748b; font-size: 14px; margin-top: 12px;">通常モードで起動しています。</p>
     </div>
+    <script>
+      if (window.history.replaceState) {
+        window.history.replaceState(null, '', '/');
+      }
+    </script>
   </body>
 </html>
 )rawliteral");
@@ -4960,6 +5045,12 @@ void wifi_access_point() {
         } else if (req_str.indexOf("GET /wifi_set/?") >= 0) {
           pre_url = "GET /wifi_set";
           wifi_set_submit(req_str);
+          req_str = "";
+        } else if (req_str.indexOf("GET /wifi_connect_start") >= 0) {
+          wifi_connect_start_proc(req_str);
+          req_str = "";
+        } else if (req_str.indexOf("GET /wifi_connect_status") >= 0) {
+          wifi_connect_status_proc();
           req_str = "";
         } else if (req_str.indexOf("GET /wifi_scan_start") >= 0) {
           wifi_scan_start_proc();
@@ -5449,6 +5540,12 @@ void start_ap_mode(void) {
   Serial.println("HTTP Server started in AP mode (Open Network)");
   Serial.printf("SoftAP SSID: %s (No Password), IP: %s\n", ap_ssid.c_str(),
                 WiFi.softAPIP().toString().c_str());
+
+  // APモード開始時にバックグラウンドでWi-Fiスキャンを先行開始
+  WiFi.scanDelete();
+  WiFi.scanNetworks(true, false, false, 300);
+  wifi_scan_state = SCAN_STATE_RUNNING;
+  scan_start_time = millis();
 }
 
 // -----------------------------------------------------------------------------
@@ -5599,12 +5696,12 @@ void setup() {
 // Arduino loop() (通信・Web UI・MQTT・AP処理タスク)
 // -----------------------------------------------------------------------------
 void loop() {
-#ifdef ENABLE_DEV_OTA
-  // 開発用OTA処理 (WiFi接続待受)
-  if (ota_initialized) {
-    ArduinoOTA.handle();
+  // WiFi設定後の自動再起動タイマー (非ブロッキング8秒)
+  if (auto_reboot_time > 0 && (millis() - auto_reboot_time > 8000)) {
+    Serial.println("Auto-reboot timer expired. Restarting ESP32...");
+    auto_reboot_time = 0;
+    esp_restart();
   }
-#endif
 
   // APモード時: ボタン押下で即座に本体リセット
   if (AP_MODE) {
