@@ -2785,15 +2785,14 @@ String html_tag2 =
     "          var savedSSID = select.getAttribute('data-saved-ssid') || '';\r\n"
     "          var savedPASS = select.getAttribute('data-saved-pass') || '';\r\n"
     "          var currentVal = select.value || savedSSID;\r\n"
-    "          var lsMap = {};\r\n"
-    "          try { lsMap = JSON.parse(localStorage.getItem('vst_wifi_pass') || '{}'); } catch(e) {}\r\n"
+    "          try { localStorage.removeItem('vst_wifi_pass'); } catch(e) {}\r\n"
     "          select.innerHTML = '';\r\n"
     "          if (networks.length === 0) {\r\n"
     "            if (savedSSID) {\r\n"
     "              var opt = document.createElement('option');\r\n"
     "              opt.value = savedSSID;\r\n"
     "              opt.text = savedSSID + ' (設定済み)';\r\n"
-    "              opt.setAttribute('data-pass', savedPASS || lsMap[savedSSID] || '');\r\n"
+    "              opt.setAttribute('data-pass', savedPASS);\r\n"
     "              opt.selected = true;\r\n"
     "              select.appendChild(opt);\r\n"
     "            } else {\r\n"
@@ -2811,7 +2810,7 @@ String html_tag2 =
     "              var opt = document.createElement('option');\r\n"
     "              opt.value = currentVal;\r\n"
     "              opt.text = currentVal + (currentVal === savedSSID ? ' (設定済み)' : '');\r\n"
-    "              opt.setAttribute('data-pass', (currentVal === savedSSID ? savedPASS : '') || lsMap[currentVal] || '');\r\n"
+    "              opt.setAttribute('data-pass', currentVal === savedSSID ? savedPASS : '');\r\n"
     "              opt.selected = true;\r\n"
     "              select.appendChild(opt);\r\n"
     "            }\r\n"
@@ -2819,7 +2818,7 @@ String html_tag2 =
     "              var opt = document.createElement('option');\r\n"
     "              opt.value = networks[i].ssid;\r\n"
     "              opt.text = networks[i].disp;\r\n"
-    "              var pVal = (networks[i].ssid === savedSSID ? savedPASS : '') || lsMap[networks[i].ssid] || '';\r\n"
+    "              var pVal = (networks[i].ssid === savedSSID ? savedPASS : '');\r\n"
     "              if (pVal) opt.setAttribute('data-pass', pVal);\r\n"
     "              if (networks[i].ssid === currentVal) opt.selected = true;\r\n"
     "              select.appendChild(opt);\r\n"
@@ -2888,17 +2887,7 @@ String html_tag2 =
     "        b.innerHTML = '👁️ 表示';\r\n"
     "      }\r\n"
     "    }\r\n"
-    "    function savePassToLocal() {\r\n"
-    "      var sel = document.getElementById('ssid_select');\r\n"
-    "      var p = document.getElementById('pass1');\r\n"
-    "      if (sel && p && sel.value) {\r\n"
-    "        try {\r\n"
-    "          var map = JSON.parse(localStorage.getItem('vst_wifi_pass') || '{}');\r\n"
-    "          map[sel.value] = p.value;\r\n"
-    "          localStorage.setItem('vst_wifi_pass', JSON.stringify(map));\r\n"
-    "        } catch(e) {}\r\n"
-    "      }\r\n"
-    "    }\r\n"
+    "    function savePassToLocal() {}\r\n"
     "    function updateSelectedSSID() {\r\n"
     "      var sel = document.getElementById('ssid_select');\r\n"
     "      var u = document.getElementById('wifi_username');\r\n"
@@ -2910,12 +2899,7 @@ String html_tag2 =
     "        var optPass = opt ? (opt.getAttribute('data-pass') || '') : '';\r\n"
     "        var savedSSID = sel.getAttribute('data-saved-ssid') || '';\r\n"
     "        var savedPASS = sel.getAttribute('data-saved-pass') || '';\r\n"
-    "        var lsPass = '';\r\n"
-    "        try {\r\n"
-    "          var map = JSON.parse(localStorage.getItem('vst_wifi_pass') || '{}');\r\n"
-    "          if (map[s]) lsPass = map[s];\r\n"
-    "        } catch(e) {}\r\n"
-    "        var autoPass = optPass || (s === savedSSID ? savedPASS : '') || lsPass;\r\n"
+    "        var autoPass = optPass || (s === savedSSID ? savedPASS : '');\r\n"
     "        if (u) u.value = s;\r\n"
     "        if (disp) disp.innerText = s ? '(' + s + ')' : '';\r\n"
     "        if (p) {\r\n"
@@ -3153,19 +3137,8 @@ void update_client_id(void) {
 void IRAM_ATTR resetModule() { esp_restart(); }
 
 // -----------------------------------------------------------------------------
-// WiFi設定永続保存 (Preferences / NVS)
+// WiFi設定永続保存 (Preferences / NVS) - 直近の1組のみ保持
 // -----------------------------------------------------------------------------
-String get_pref_key_for_ssid(const String &ssid) {
-  if (ssid.length() <= 15) {
-    return ssid;
-  }
-  uint32_t hash = 5381;
-  for (size_t i = 0; i < ssid.length(); i++) {
-    hash = ((hash << 5) + hash) + ssid[i];
-  }
-  return "w_" + String(hash, HEX);
-}
-
 void save_wifi_credentials(String ssid, String pass) {
   if (ssid.length() == 0)
     return;
@@ -3179,29 +3152,24 @@ void save_wifi_credentials(String ssid, String pass) {
     Serial.println("[WiFi] Failed to open Preferences for saving credentials");
   }
 
-  // SSIDごとのパスワード辞書にも保存
+  // 過去の履歴辞書（wifi_pass / wifi_meta）が残っていれば消去してクリーンアップ
   if (prefs.begin("wifi_pass", false)) {
-    String key = get_pref_key_for_ssid(ssid);
-    prefs.putString(key.c_str(), pass);
+    prefs.clear();
     prefs.end();
-    Serial.printf("[WiFi] Saved password for SSID '%s' (key: %s)\n", ssid.c_str(), key.c_str());
+  }
+  if (prefs.begin("wifi_meta", false)) {
+    prefs.clear();
+    prefs.end();
   }
 }
 
 String get_saved_wifi_pass(String ssid) {
   if (ssid.length() == 0)
     return "";
-  Preferences prefs;
-  String pass = "";
-  if (prefs.begin("wifi_pass", true)) {
-    String key = get_pref_key_for_ssid(ssid);
-    pass = prefs.getString(key.c_str(), "");
-    prefs.end();
+  if (ssid == Selected_SSID_str) {
+    return Sel_SSID_PASS_str;
   }
-  if (pass.length() == 0 && ssid == Selected_SSID_str) {
-    pass = Sel_SSID_PASS_str;
-  }
-  return pass;
+  return "";
 }
 
 void load_saved_wifi_credentials(void) {
