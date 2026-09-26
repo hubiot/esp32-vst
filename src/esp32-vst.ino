@@ -123,7 +123,7 @@ String ssid_str[30];
 String Selected_SSID_str;
 String Sel_SSID_PASS_str;
 String CLIENT_ID;        // MACアドレスベースのユニークID
-boolean AP_MODE = false; // true:アクセスポイントモード false:通常モード
+volatile boolean AP_MODE = false; // true:アクセスポイントモード false:通常モード
 int PAGE_NUM = 0;        // 0:wifi set 1:parameter set
 
 int CHATTERING_AP[3] = {1, 1, 1}; // APボタンチャタリング対策
@@ -145,7 +145,9 @@ const char *awsEndpoint = "a24t2172v8g5ia-ats.iot.ap-northeast-1.amazonaws.com";
 const int awsPort = 8883;
 WiFiClientSecure httpsClient;
 PubSubClient mqttClient(httpsClient);
-boolean mqtt_error_flag = false; // MQTT送信失敗・未接続フラグ
+volatile boolean mqtt_error_flag = false; // MQTT送信失敗・未接続フラグ
+volatile boolean ntp_synced = false;     // NTP時刻同期完了フラグ
+volatile boolean wdt_reset_triggered = false; // WDT割込リセット要求フラグ
 
 hw_timer_t *timer = NULL; // Watchdog Timer用
 
@@ -159,13 +161,13 @@ double LEQ[2] = {0, 0};
 boolean FIRST_FLAG = true;
 boolean RAIN_FLAG = false; // 雨量測定データ送信トリガー
 
-int RAIN_CNT = 0;              // 雨量カウント数
+volatile int RAIN_CNT = 0;              // 雨量カウント数
 int RAIN_PULSE[3] = {0, 0, 0}; // チャタリング除去用
 int PLS = 0;
 int PRE_PLS = 0;
 
-int RAW_MD[4];     // MCP3424 Raw測定値
-int PRE_RAW_MD[4]; // エラー時代替用前回値
+volatile int RAW_MD[4];     // MCP3424 Raw測定値
+volatile int PRE_RAW_MD[4]; // エラー時代替用前回値
 #if NOISE_VIB_DEBUG == 1
 int debug_raw_val = 1; // 1から6000へカウントアップ (完全逆順ストレステスト)
 #endif
@@ -3147,7 +3149,15 @@ void update_client_id(void) {
   }
 }
 
-void IRAM_ATTR resetModule() { esp_restart(); }
+static volatile int wdt_isr_count = 0;
+void IRAM_ATTR resetModule() {
+  wdt_reset_triggered = true;
+  wdt_isr_count++;
+  if (wdt_isr_count > 2) {
+    // メインループが完全にハングして処理できない場合、ハードウェアリセットを強制実行
+    esp_system_abort("WDT hard timeout");
+  }
+}
 
 // -----------------------------------------------------------------------------
 // WiFi設定永続保存 (Preferences / NVS) - 直近の1組のみ保持
@@ -3702,6 +3712,7 @@ boolean set_sysclcok() {
     no++;
     if (no > 2) {
       Serial.println("time adjust fail");
+      ntp_synced = false;
       return false;
     }
   }
@@ -3711,6 +3722,7 @@ boolean set_sysclcok() {
                 tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min,
                 tm->tm_sec);
   CUR_MIN = tm->tm_min;
+  ntp_synced = true;
   return true;
 }
 
@@ -5743,6 +5755,13 @@ void setup() {
 // Arduino loop() (通信・Web UI・MQTT・AP処理タスク)
 // -----------------------------------------------------------------------------
 void loop() {
+  // WDTタイマー割込検知時の安全な再起動処理 (ISRコンテキスト外での実行)
+  if (wdt_reset_triggered) {
+    Serial.println("[WDT] Watchdog timer triggered! Restarting ESP32 safely...");
+    delay(50);
+    esp_restart();
+  }
+
   // WiFi設定後の自動再起動タイマー (非ブロッキング8秒)
   if (auto_reboot_time > 0 && (millis() - auto_reboot_time > 8000)) {
     Serial.println("Auto-reboot timer expired. Restarting ESP32...");
@@ -5795,6 +5814,16 @@ void loop() {
       MeasSendData msg;
       if (xQueueReceive(sendDataQueue, &msg, 0) == pdTRUE) {
         comm_publish_meas_data(msg.data);
+      }
+    }
+
+    // NTP未同期の場合、WiFi接続中であれば60秒ごとにバックグラウンド再試行
+    static unsigned long last_ntp_retry = 0;
+    if (!ntp_synced && WiFi.status() == WL_CONNECTED) {
+      if (millis() - last_ntp_retry > 60000) {
+        last_ntp_retry = millis();
+        Serial.println("[NTP] Retrying background NTP synchronization...");
+        set_sysclcok();
       }
     }
 
