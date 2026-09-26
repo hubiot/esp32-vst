@@ -5,17 +5,19 @@
 // =============================================================================
 
 // 0:通常動作
-// 1:騒音・振動デバッグ用(インクリメント)
+// 1:騒音・振動ストレステスト用(インクリメントデータを使い、ソート時間最大で間に合うか確認)
+// 2:ADC測定デバッグ用(サンプリング毎に生ADC値をシリアル出力: mcnt,ch1..ch4)
 
 #define NOISE_VIB_DEBUG 0
 
 // -----------------------------------------------------------------------------
-// 機種定義 (VST-100 / VST-01 / VST-01R)
-// platformio.ini の build_flags (-D VST100, -D VST01, -D VST01R) で定義されます。
-// platformio.ini 側で未指定の場合のみ、デフォルトとして VST100 を定義します。
+// 機種定義 (VST-100 / VST-01 / VST-01-R)
+// platformio.ini の build_flags (-D VST100, -D VST01, -D VST01R)
+// で定義されます。 platformio.ini 側で未指定の場合のみ、デフォルトとして
+// VST-01-R を定義します。
 // -----------------------------------------------------------------------------
 #if !defined(VST100) && !defined(VST01) && !defined(VST01R)
-#define VST100 // デフォルト: VST-100
+#define VST01R // デフォルト: VST-01-R
 #endif
 
 #include "aws.h" // AWS証明書
@@ -24,8 +26,8 @@
 #include "time.h"
 
 #include <EEPROM.h>
-#include <Preferences.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <PubSubClient.h>
 #include <Update.h>
 #include <WiFi.h>
@@ -56,7 +58,6 @@ const int SCL_PIN = 22; // I2C MCP3424 SCL
 #ifndef FIRMWARE_VERSION
 #define FIRMWARE_VERSION "v1.0.0"
 #endif
-
 
 // -----------------------------------------------------------------------------
 // パラメータ・データ構造体定義
@@ -628,7 +629,7 @@ const char *str_factory_calibration = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
+        <a href='/factory5320004' class="btn-factory-home">Factory Home</a>
         <a href="#" class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -866,7 +867,7 @@ const char *str_client_id_set = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
+        <a href='/factory5320004' class="btn-factory-home">Factory Home</a>
         <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -1012,7 +1013,7 @@ const char *str_topic_set = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
+        <a href='/factory5320004' class="btn-factory-home">Factory Home</a>
         <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -2048,7 +2049,7 @@ const char *str_meas_period = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
+        <a href='/factory5320004' class="btn-factory-home">Factory Home</a>
         <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -2301,7 +2302,7 @@ const char *str_ave_normal = R"rawliteral(
       </div>
 
       <div class="nav-group">
-        <a href='/factory2416' class="btn-factory-home">Factory Home</a>
+        <a href='/factory5320004' class="btn-factory-home">Factory Home</a>
         <a href='#' class="btn-reset" onclick="confirmReset(); return false;">🔄 本体リセット</a>
       </div>
     </div>
@@ -2782,10 +2783,13 @@ String html_tag2 =
     "        icon.classList.remove('spinning');\r\n"
     "        text.innerText = '検索';\r\n"
     "        if (networks && Array.isArray(networks)) {\r\n"
-    "          var savedSSID = select.getAttribute('data-saved-ssid') || '';\r\n"
-    "          var savedPASS = select.getAttribute('data-saved-pass') || '';\r\n"
+    "          var savedSSID = select.getAttribute('data-saved-ssid') || "
+    "'';\r\n"
+    "          var savedPASS = select.getAttribute('data-saved-pass') || "
+    "'';\r\n"
     "          var currentVal = select.value || savedSSID;\r\n"
-    "          try { localStorage.removeItem('vst_wifi_pass'); } catch(e) {}\r\n"
+    "          try { localStorage.removeItem('vst_wifi_pass'); } catch(e) "
+    "{}\r\n"
     "          select.innerHTML = '';\r\n"
     "          if (networks.length === 0) {\r\n"
     "            if (savedSSID) {\r\n"
@@ -2804,13 +2808,16 @@ String html_tag2 =
     "          } else {\r\n"
     "            var foundCurrent = false;\r\n"
     "            for (var i = 0; i < networks.length; i++) {\r\n"
-    "              if (networks[i].ssid === currentVal) foundCurrent = true;\r\n"
+    "              if (networks[i].ssid === currentVal) foundCurrent = "
+    "true;\r\n"
     "            }\r\n"
     "            if (!foundCurrent && currentVal) {\r\n"
     "              var opt = document.createElement('option');\r\n"
     "              opt.value = currentVal;\r\n"
-    "              opt.text = currentVal + (currentVal === savedSSID ? ' (設定済み)' : '');\r\n"
-    "              opt.setAttribute('data-pass', currentVal === savedSSID ? savedPASS : '');\r\n"
+    "              opt.text = currentVal + (currentVal === savedSSID ? ' "
+    "(設定済み)' : '');\r\n"
+    "              opt.setAttribute('data-pass', currentVal === savedSSID ? "
+    "savedPASS : '');\r\n"
     "              opt.selected = true;\r\n"
     "              select.appendChild(opt);\r\n"
     "            }\r\n"
@@ -2818,9 +2825,11 @@ String html_tag2 =
     "              var opt = document.createElement('option');\r\n"
     "              opt.value = networks[i].ssid;\r\n"
     "              opt.text = networks[i].disp;\r\n"
-    "              var pVal = (networks[i].ssid === savedSSID ? savedPASS : '');\r\n"
+    "              var pVal = (networks[i].ssid === savedSSID ? savedPASS : "
+    "'');\r\n"
     "              if (pVal) opt.setAttribute('data-pass', pVal);\r\n"
-    "              if (networks[i].ssid === currentVal) opt.selected = true;\r\n"
+    "              if (networks[i].ssid === currentVal) opt.selected = "
+    "true;\r\n"
     "              select.appendChild(opt);\r\n"
     "            }\r\n"
     "          }\r\n"
@@ -2842,7 +2851,8 @@ String html_tag2 =
     "              data = JSON.parse(xhrP.responseText);\r\n"
     "            } catch(e) {}\r\n"
     "            if (data && data.status === 'done') {\r\n"
-    "              try { finishScan(data.networks); } catch(err) { finishScan([]); }\r\n"
+    "              try { finishScan(data.networks); } catch(err) { "
+    "finishScan([]); }\r\n"
     "              return;\r\n"
     "            } else if (data && data.status === 'failed') {\r\n"
     "              finishScan([]);\r\n"
@@ -2895,8 +2905,10 @@ String html_tag2 =
     "      var disp = document.getElementById('selected_ssid_disp');\r\n"
     "      if (sel) {\r\n"
     "        var s = sel.value;\r\n"
-    "        var opt = (sel.selectedIndex >= 0) ? sel.options[sel.selectedIndex] : null;\r\n"
-    "        var optPass = opt ? (opt.getAttribute('data-pass') || '') : '';\r\n"
+    "        var opt = (sel.selectedIndex >= 0) ? "
+    "sel.options[sel.selectedIndex] : null;\r\n"
+    "        var optPass = opt ? (opt.getAttribute('data-pass') || '') : "
+    "'';\r\n"
     "        var savedSSID = sel.getAttribute('data-saved-ssid') || '';\r\n"
     "        var savedPASS = sel.getAttribute('data-saved-pass') || '';\r\n"
     "        var autoPass = optPass || (s === savedSSID ? savedPASS : '');\r\n"
@@ -2986,6 +2998,7 @@ boolean is_number(String str);
 boolean chk_host_ip(String *str);
 String format_pass(String *pass_tmp);
 String get_hardware_mac(void);
+const char *get_model_name(int model_no);
 void update_client_id(void);
 void get_client_id_from_url(String req_str);
 void get_topic_from_url(String req_str);
@@ -3147,7 +3160,8 @@ void save_wifi_credentials(String ssid, String pass) {
     prefs.putString("ssid", ssid);
     prefs.putString("pass", pass);
     prefs.end();
-    Serial.printf("[WiFi] Saved credentials to NVS: SSID='%s'\n", ssid.c_str());
+    Serial.printf("[WiFi] Saved credentials to NVS: SSID='%s'\r\n",
+                  ssid.c_str());
   } else {
     Serial.println("[WiFi] Failed to open Preferences for saving credentials");
   }
@@ -3181,7 +3195,7 @@ void load_saved_wifi_credentials(void) {
     if (s.length() > 0) {
       Selected_SSID_str = s;
       Sel_SSID_PASS_str = p;
-      Serial.printf("[WiFi] Loaded credentials from NVS: SSID='%s'\n",
+      Serial.printf("[WiFi] Loaded credentials from NVS: SSID='%s'\r\n",
                     Selected_SSID_str.c_str());
       return;
     }
@@ -3192,7 +3206,7 @@ void load_saved_wifi_credentials(void) {
   if (idf_ssid.length() > 0) {
     Selected_SSID_str = idf_ssid;
     Sel_SSID_PASS_str = idf_pass;
-    Serial.printf("[WiFi] Loaded credentials from WiFi.SSID(): SSID='%s'\n",
+    Serial.printf("[WiFi] Loaded credentials from WiFi.SSID(): SSID='%s'\r\n",
                   Selected_SSID_str.c_str());
   }
 }
@@ -3281,8 +3295,8 @@ boolean eeprom_read(void) {
     update_client_id();
     Serial.println("[EEPROM] Loaded VST_U04 settings successfully:");
     for (int i = 0; i < 4; i++) {
-      Serial.printf("  CH%d: LARGE=%.2f (ADC=%d), SMALL=%.2f (ADC=%d)\n", i + 1,
-                    T_PARA[i].para_large, T_PARA[i].meas_large,
+      Serial.printf("  CH%d: LARGE=%.2f (ADC=%d), SMALL=%.2f (ADC=%d)\r\n",
+                    i + 1, T_PARA[i].para_large, T_PARA[i].meas_large,
                     T_PARA[i].para_small, T_PARA[i].meas_small);
     }
     return true;
@@ -3475,8 +3489,8 @@ void meas_set_param(int ch, int is_small, float val) {
     T_PARA[ch].para_small = val;
     T_PARA[ch].meas_small = RAW_MD[ch];
   }
-  Serial.printf("[CALIB] Set CH%d %s = %.2f (captured raw ADC = %d)\n", ch + 1,
-                (is_small == 0) ? "LARGE" : "SMALL", val, RAW_MD[ch]);
+  Serial.printf("[CALIB] Set CH%d %s = %.2f (captured raw ADC = %d)\r\n",
+                ch + 1, (is_small == 0) ? "LARGE" : "SMALL", val, RAW_MD[ch]);
   eeprom_write();
 }
 
@@ -3693,7 +3707,7 @@ boolean set_sysclcok() {
   }
   time(&CUR_TIME);
   struct tm *tm = localtime(&CUR_TIME);
-  Serial.printf("Time: %04d/%02d/%02d %02d:%02d:%02d\n", tm->tm_year + 1900,
+  Serial.printf("Time: %04d/%02d/%02d %02d:%02d:%02d\r\n", tm->tm_year + 1900,
                 tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min,
                 tm->tm_sec);
   CUR_MIN = tm->tm_min;
@@ -3711,8 +3725,8 @@ void setup_awsiot() {
 void connect_awsiot() {
   while (!mqttClient.connected() && !AP_MODE) {
     if (check_ap_button_pressed()) {
-      Serial.println("AP button pressed during connect_awsiot! Switching to "
-                     "SoftAP Mode...");
+      Serial.println("AP button long-pressed (2s) during connect_awsiot! "
+                     "Switching to SoftAP Mode...");
       if (timer)
         timerAlarmDisable(timer);
       start_ap_mode();
@@ -3730,8 +3744,8 @@ void connect_awsiot() {
       Serial.println(" try again in 5 seconds");
       for (int k = 0; k < 50; k++) {
         if (check_ap_button_pressed() && !AP_MODE) {
-          Serial.println("AP button pressed during MQTT retry! Switching to "
-                         "SoftAP Mode...");
+          Serial.println("AP button long-pressed (2s) during MQTT retry! "
+                         "Switching to SoftAP Mode...");
           if (timer)
             timerAlarmDisable(timer);
           start_ap_mode();
@@ -3752,7 +3766,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   for (int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
   }
-  Serial.print("\n");
+  Serial.print("\r\n");
 }
 
 void aws_connect(void) {
@@ -3770,7 +3784,6 @@ void aws_connect(void) {
   if (timer)
     timerAlarmDisable(timer);
 }
-
 
 void wifi_connect(void) {
   if (AP_MODE)
@@ -3790,15 +3803,16 @@ void wifi_connect(void) {
 
   // 保存されたSSIDがあれば、明示的にbeginを実行
   if (WiFi.status() != WL_CONNECTED && Selected_SSID_str.length() > 0) {
-    Serial.printf("Connecting to saved WiFi: %s\n", Selected_SSID_str.c_str());
+    Serial.printf("Connecting to saved WiFi: %s\r\n",
+                  Selected_SSID_str.c_str());
     WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
   }
 
   while (WiFi.status() != WL_CONNECTED && !AP_MODE) {
     for (int k = 0; k < 10; k++) {
       if (check_ap_button_pressed() && AP_MODE == false) {
-        Serial.println("AP button pressed during wifi_connect! Switching to "
-                       "SoftAP Mode...");
+        Serial.println("AP button long-pressed (2s) during wifi_connect! "
+                       "Switching to SoftAP Mode...");
         if (timer)
           timerAlarmDisable(timer);
         start_ap_mode();
@@ -3824,7 +3838,6 @@ void wifi_connect(void) {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("WiFi connected! IP address: ");
     Serial.println(WiFi.localIP());
-
   }
   if (time_adj_flag && !AP_MODE) {
     set_sysclcok();
@@ -3846,7 +3859,7 @@ void aws_mqtt_publish(char *str) {
   mqttClient.loop();
 #if NOISE_VIB_DEBUG > 0
   for (int i = 0; i < 4; i++) {
-    Serial.printf("  CH%d: LARGE=%.2f (ADC=%d), SMALL=%.2f (ADC=%d)\n", i + 1,
+    Serial.printf("  CH%d: LARGE=%.2f (ADC=%d), SMALL=%.2f (ADC=%d)\r\n", i + 1,
                   T_PARA[i].para_large, T_PARA[i].meas_large,
                   T_PARA[i].para_small, T_PARA[i].meas_small);
   }
@@ -3854,10 +3867,10 @@ void aws_mqtt_publish(char *str) {
   Serial.printf("Publishing to [%s]: ", PARA.pub_topic.c_str());
   Serial.println(str);
   if (mqttClient.publish(PARA.pub_topic.c_str(), str)) {
-    Serial.println("Published.\n");
+    Serial.println("Published.");
     mqtt_error_flag = false;
   } else {
-    Serial.println("Publish failed!\n");
+    Serial.println("Publish failed!");
     mqtt_error_flag = true;
   }
 }
@@ -3871,8 +3884,9 @@ void connect_local_host(void) {
     while (WiFi.status() != WL_CONNECTED && !AP_MODE) {
       for (int k = 0; k < 10; k++) {
         if (check_ap_button_pressed() && !AP_MODE) {
-          Serial.println("AP button pressed during connect_local_host! "
-                         "Switching to SoftAP Mode...");
+          Serial.println(
+              "AP button long-pressed (2s) during connect_local_host! "
+              "Switching to SoftAP Mode...");
           if (timer)
             timerAlarmDisable(timer);
           start_ap_mode();
@@ -3961,7 +3975,7 @@ void comm_publish_meas_data(float *sdata) {
     } else {
       RAIN_OTH += ftmp;
     }
-    Serial.printf("%d- RAIN_OTH : %.2f\n", RCNT++, RAIN_OTH);
+    Serial.printf("%d- RAIN_OTH : %.2f\r\n", RCNT++, RAIN_OTH);
 
     // リレー制御
     if (RAIN_OTH > PARA.shreshold) {
@@ -4039,7 +4053,8 @@ String HTML_Select_Box_str(String Sel_Ssid) {
   String str = "";
   String selected_str = "";
   str += "<div class='card'>\r\n";
-  str += "  <form name='F_ssid_select' id='wifi_form' action='/wifi_set/' method='GET' onsubmit='return handleWifiSubmit(event)'>\r\n";
+  str += "  <form name='F_ssid_select' id='wifi_form' action='/wifi_set/' "
+         "method='GET' onsubmit='return handleWifiSubmit(event)'>\r\n";
   str += "    <div class='form-group'>\r\n";
   str += "      <div class='label-row'>\r\n";
   str +=
@@ -4066,15 +4081,17 @@ String HTML_Select_Box_str(String Sel_Ssid) {
 
   // スキャン一覧に見つからなかった場合、先頭に保存済みSSIDを追加して選択状態にする
   if (Selected_SSID_str.length() > 0 && !found_saved) {
-    str += "          <option value=\"" + Selected_SSID_str + "\" selected data-pass=\"" +
-           Sel_SSID_PASS_str + "\">" + Selected_SSID_str + " (設定済み)</option>\r\n";
+    str += "          <option value=\"" + Selected_SSID_str +
+           "\" selected data-pass=\"" + Sel_SSID_PASS_str + "\">" +
+           Selected_SSID_str + " (設定済み)</option>\r\n";
   }
 
   for (int i = 0; i < ssid_num; i++) {
     selected_str = (Selected_SSID_str == ssid_str[i]) ? " selected" : "";
     String p_saved = get_saved_wifi_pass(ssid_str[i]);
     str += "          <option value=\"" + ssid_str[i] + "\"" + selected_str +
-           " data-pass=\"" + p_saved + "\">" + ssid_rssi_str[i] + "</option>\r\n";
+           " data-pass=\"" + p_saved + "\">" + ssid_rssi_str[i] +
+           "</option>\r\n";
   }
   str += "        </select>\r\n";
   str += "        <button type='button' id='btn_rescan' onclick='rescanWifi()' "
@@ -4149,14 +4166,14 @@ void check_async_wifi_scan(void) {
   int16_t scan_res = WiFi.scanComplete();
   if (scan_res >= 0) {
     ssid_num = (scan_res > 30) ? 30 : scan_res;
-    Serial.printf("WiFi scan completed: %d networks found\n", ssid_num);
+    Serial.printf("WiFi scan completed: %d networks found\r\n", ssid_num);
     for (int i = 0; i < ssid_num; ++i) {
       ssid_str[i] = WiFi.SSID(i);
       String wifi_auth_open =
           ((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? " " : "*");
       ssid_rssi_str[i] =
           ssid_str[i] + " (" + String(WiFi.RSSI(i)) + "dBm)" + wifi_auth_open;
-      Serial.printf("%d: %s\n", i, ssid_rssi_str[i].c_str());
+      Serial.printf("%d: %s\r\n", i, ssid_rssi_str[i].c_str());
     }
     WiFi.scanDelete();
     wifi_scan_state = SCAN_STATE_SUCCESS;
@@ -4191,20 +4208,23 @@ void wifi_scan_start_proc(void) {
     client.read();
 
   int16_t scan_res = WiFi.scanComplete();
-  Serial.printf("[SCAN] Start requested, current scanComplete: %d\n", scan_res);
+  Serial.printf("[SCAN] Start requested, current scanComplete: %d\r\n",
+                scan_res);
   if (scan_res == -1) {
     Serial.println("[SCAN] WiFi scan already running");
     wifi_scan_state = SCAN_STATE_RUNNING;
   } else {
     WiFi.scanDelete();
     int16_t ret = WiFi.scanNetworks(true, false, false, 300);
-    Serial.printf("[SCAN] WiFi.scanNetworks(async, 300ms) returned: %d\n", ret);
+    Serial.printf("[SCAN] WiFi.scanNetworks(async, 300ms) returned: %d\r\n",
+                  ret);
     wifi_scan_state = SCAN_STATE_RUNNING;
     scan_start_time = millis();
   }
 
-  client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                 "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"started\"}"));
+  client.print(
+      F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+        "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"started\"}"));
   client.flush();
   delay(30);
   client.stop();
@@ -4219,13 +4239,15 @@ void wifi_scan_status_proc(void) {
 
   int16_t scan_res = WiFi.scanComplete();
   unsigned long elapsed = millis() - scan_start_time;
-  Serial.printf("[SCAN] Status poll: scanComplete=%d, state=%d, ssid_num=%d, elapsed=%lums\n",
+  Serial.printf("[SCAN] Status poll: scanComplete=%d, state=%d, ssid_num=%d, "
+                "elapsed=%lums\r\n",
                 scan_res, wifi_scan_state, ssid_num, elapsed);
 
   // 1. スキャン完了状態（30件取得済み）-> 確実に一覧を返却
   if (wifi_scan_state == SCAN_STATE_SUCCESS) {
     client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                   "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"done\",\"networks\":["));
+                   "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":"
+                   "\"done\",\"networks\":["));
     for (int i = 0; i < ssid_num; ++i) {
       if (i > 0)
         client.print(",");
@@ -4249,9 +4271,11 @@ void wifi_scan_status_proc(void) {
   }
 
   // 2. スキャン実行中（最大7秒待機）
-  if (wifi_scan_state == SCAN_STATE_RUNNING && (scan_res == -1 || elapsed < 7000)) {
-    client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                   "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"scanning\"}"));
+  if (wifi_scan_state == SCAN_STATE_RUNNING &&
+      (scan_res == -1 || elapsed < 7000)) {
+    client.print(F(
+        "HTTP/1.1 200 OK\r\nContent-type:application/json; "
+        "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"scanning\"}"));
     client.flush();
     delay(30);
     client.stop();
@@ -4260,8 +4284,9 @@ void wifi_scan_status_proc(void) {
 
   // 3. タイムアウトまたは失敗
   wifi_scan_state = SCAN_STATE_FAILED;
-  client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                 "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"failed\"}"));
+  client.print(
+      F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+        "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"failed\"}"));
   client.flush();
   delay(30);
   client.stop();
@@ -4281,7 +4306,8 @@ void wifi_scan_ajax_proc(void) {
     scan_res = WiFi.scanComplete();
   } else if (scan_res == -2 || scan_res == 0) {
     int16_t n = WiFi.scanNetworks(false, false, false, 120);
-    if (n >= 0) scan_res = n;
+    if (n >= 0)
+      scan_res = n;
   }
   if (scan_res >= 0) {
     check_async_wifi_scan();
@@ -4405,7 +4431,7 @@ void wifi_connect_start_proc(String req_str) {
     Sel_SSID_PASS_str = "ck8m7ah5v6dkw";
   }
 
-  Serial.printf("[WiFi] AJAX Connect Start - SSID: '%s', Pass: '%s'\n",
+  Serial.printf("[WiFi] AJAX Connect Start - SSID: '%s', Pass: '%s'\r\n",
                 Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
 
   // NVSに即時保存
@@ -4420,8 +4446,9 @@ void wifi_connect_start_proc(String req_str) {
   wifi_conn_state = CONN_STATE_CONNECTING;
   conn_start_time = millis();
 
-  client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                 "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"started\"}"));
+  client.print(
+      F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+        "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"started\"}"));
   client.flush();
   delay(30);
   client.stop();
@@ -4435,7 +4462,8 @@ void wifi_connect_status_proc(void) {
     LIP = WiFi.localIP();
     wifi_conn_state = CONN_STATE_CONNECTED;
     client.printf("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                  "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"connected\",\"ip\":\"%s\"}",
+                  "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":"
+                  "\"connected\",\"ip\":\"%s\"}",
                   LIP.toString().c_str());
     client.flush();
     delay(50);
@@ -4446,7 +4474,8 @@ void wifi_connect_status_proc(void) {
   unsigned long elapsed = millis() - conn_start_time;
   if (wifi_conn_state == CONN_STATE_CONNECTING && elapsed < 20000) {
     client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                   "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"connecting\"}"));
+                   "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":"
+                   "\"connecting\"}"));
     client.flush();
     delay(30);
     client.stop();
@@ -4457,8 +4486,9 @@ void wifi_connect_status_proc(void) {
   WiFi.disconnect(false);
   WiFi.setAutoReconnect(false);
   WiFi.mode(WIFI_AP_STA);
-  client.print(F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
-                 "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"failed\"}"));
+  client.print(
+      F("HTTP/1.1 200 OK\r\nContent-type:application/json; "
+        "charset=utf-8\r\nConnection:close\r\n\r\n{\"status\":\"failed\"}"));
   client.flush();
   delay(30);
   client.stop();
@@ -4524,7 +4554,11 @@ void send_wifi_success_page(IPAddress ip) {
       "  }\r\n"
       "  .message { font-size: 16px; font-weight: 600; color: #475569; "
       "line-height: 1.6; margin: 16px 0 0 0; }\r\n"
-      "  .btn-reboot { display: inline-block; width: 100%; max-width: 280px; background: #2563eb; color: #fff; border: none; padding: 14px 28px; border-radius: 12px; font-size: 16px; font-weight: 700; margin-top: 24px; box-shadow: 0 4px 6px -1px rgba(37,99,235,0.3); cursor: pointer; transition: all 0.2s ease; }\r\n"
+      "  .btn-reboot { display: inline-block; width: 100%; max-width: 280px; "
+      "background: #2563eb; color: #fff; border: none; padding: 14px 28px; "
+      "border-radius: 12px; font-size: 16px; font-weight: 700; margin-top: "
+      "24px; box-shadow: 0 4px 6px -1px rgba(37,99,235,0.3); cursor: pointer; "
+      "transition: all 0.2s ease; }\r\n"
       "  .btn-reboot:hover { background: #1d4ed8; }\r\n"
       "</style>\r\n"
       "</head>\r\n"
@@ -4536,8 +4570,11 @@ void send_wifi_success_page(IPAddress ip) {
       "      <div class='ip-card'>IP = " +
       ip.toString() +
       "</div>\r\n"
-      "      <p class='message' id='msg_text'>本体は <span id='cd_sec' style='color:#0284c7; font-weight:700;'>8</span> 秒後に通常モードで再起動します。</p>\r\n"
-      "      <button type='button' id='btn_reboot' onclick='rebootNow()' class='btn-reboot'>🔄 今すぐ再起動</button>\r\n"
+      "      <p class='message' id='msg_text'>本体は <span id='cd_sec' "
+      "style='color:#0284c7; font-weight:700;'>8</span> "
+      "秒後に通常モードで再起動します。</p>\r\n"
+      "      <button type='button' id='btn_reboot' onclick='rebootNow()' "
+      "class='btn-reboot'>🔄 今すぐ再起動</button>\r\n"
       "    </div>\r\n"
       "  </div>\r\n"
       "  <script>\r\n"
@@ -4585,7 +4622,7 @@ void wifi_set_submit(String req_str) {
     Selected_SSID_str = "Buffalo-G-FBF8";
     Sel_SSID_PASS_str = "ck8m7ah5v6dkw";
   }
-  Serial.printf("[WiFi] Parsed - SSID: '%s', Pass: '%s'\n",
+  Serial.printf("[WiFi] Parsed - SSID: '%s', Pass: '%s'\r\n",
                 Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
 
   // 設定されたWiFi情報を即座にNVSに保存
@@ -4635,7 +4672,8 @@ void wifi_set_submit(String req_str) {
 
   // WiFi接続に成功してIPアドレスを取得できた場合、8秒後に自動再起動を予約（非ブロッキング）
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("WiFi connected & IP obtained. Auto-reboot scheduled in 8s (non-blocking)...");
+    Serial.println("WiFi connected & IP obtained. Auto-reboot scheduled in 8s "
+                   "(non-blocking)...");
     auto_reboot_time = millis();
   }
 }
@@ -4678,7 +4716,7 @@ void get_pram_from_url(String req_str) {
       int ch_idx = S_CH_NUM.toInt() - 1;
       int is_small = S_LARGE_SMALL.toInt();
       meas_set_param(ch_idx, is_small, s_conv_param.toFloat());
-      Serial.printf("Param Set CH%d %s: %s\n", ch_idx + 1,
+      Serial.printf("Param Set CH%d %s: %s\r\n", ch_idx + 1,
                     (is_small == 0) ? "LARGE" : "SMALL", s_conv_param.c_str());
     }
   }
@@ -4694,7 +4732,7 @@ void get_shreshold_from_url(String req_str) {
       if (sh >= -9999.9 && sh <= 9999.9) {
         PARA.shreshold = sh;
         eeprom_write();
-        Serial.printf("Shreshold set: %.1f\n", PARA.shreshold);
+        Serial.printf("Shreshold set: %.1f\r\n", PARA.shreshold);
       }
     }
   }
@@ -4709,7 +4747,7 @@ void get_meas_period_from_url(String req_str) {
     if (mp >= 2) {
       PARA.meas_period = mp;
       eeprom_write();
-      Serial.printf("Meas period set: %d\n", PARA.meas_period);
+      Serial.printf("Meas period set: %d\r\n", PARA.meas_period);
     }
   }
 }
@@ -4759,7 +4797,8 @@ void get_topic_from_url(String req_str) {
       PARA.pub_topic = "pub_prod";
     }
     eeprom_write();
-    Serial.printf("Publish Topic Setting saved: %s\n", PARA.pub_topic.c_str());
+    Serial.printf("Publish Topic Setting saved: %s\r\n",
+                  PARA.pub_topic.c_str());
   }
 }
 
@@ -4779,7 +4818,8 @@ void get_pulse_from_url(String req_str) {
     if (p > 0.0f) {
       PARA.pulse_weight = p;
       eeprom_write();
-      Serial.printf("Pulse Weight Setting saved: %.1f mm\n", PARA.pulse_weight);
+      Serial.printf("Pulse Weight Setting saved: %.1f mm\r\n",
+                    PARA.pulse_weight);
     }
   }
 }
@@ -4818,7 +4858,7 @@ void handle_web_ota_upload() {
     }
   }
 
-  Serial.printf("[Web OTA] Upload started. Content-Length: %u bytes\n",
+  Serial.printf("[Web OTA] Upload started. Content-Length: %u bytes\r\n",
                 (unsigned int)contentLength);
 
   if (contentLength == 0) {
@@ -4834,7 +4874,7 @@ void handle_web_ota_upload() {
   // 空きフラッシュ容量のチェック
   size_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
   if (contentLength > maxSketchSpace) {
-    Serial.printf("[Web OTA] Error: Size %u exceeds max sketch space %u\n",
+    Serial.printf("[Web OTA] Error: Size %u exceeds max sketch space %u\r\n",
                   (unsigned int)contentLength, (unsigned int)maxSketchSpace);
     client.print(F("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; "
                    "charset=utf-8\r\nConnection: "
@@ -4898,7 +4938,7 @@ void handle_web_ota_upload() {
       }
     } else {
       if (!client.connected()) {
-        Serial.printf("[Web OTA] Client disconnected! Written: %u/%u\n",
+        Serial.printf("[Web OTA] Client disconnected! Written: %u/%u\r\n",
                       (unsigned int)totalWritten, (unsigned int)contentLength);
         writeSuccess = false;
         break;
@@ -4914,7 +4954,7 @@ void handle_web_ota_upload() {
 
   if (writeSuccess && totalWritten == contentLength && Update.end(true)) {
     if (Update.isFinished()) {
-      Serial.println("\n[Web OTA] Update successful! Sending response...");
+      Serial.println("\r\n[Web OTA] Update successful! Sending response...");
       client.print(F("HTTP/1.1 200 OK\r\nContent-Type: text/plain; "
                      "charset=utf-8\r\nConnection: close\r\n\r\nOK"));
       client.flush();
@@ -5100,7 +5140,7 @@ void wifi_access_point() {
         } else if (req_str.indexOf("GET /relay_toggle") >= 0) {
           RELAY_STATE = !RELAY_STATE;
           digitalWrite(RELAY_OUT, RELAY_STATE ? HIGH : LOW);
-          Serial.printf("[WEB] Relay toggled to: %s\n",
+          Serial.printf("[WEB] Relay toggled to: %s\r\n",
                         RELAY_STATE ? "ON" : "OFF");
           client.print(html_res_head2);
           client.print(RELAY_STATE ? 1 : 0);
@@ -5275,8 +5315,8 @@ void wifi_access_point() {
           client.print(String(PARA.pulse_weight, 1).c_str());
           delay(10);
           client.stop();
-        } else if (req_str.indexOf("GET /factory2416?") >= 0) {
-          pre_url = "GET /factory2416";
+        } else if (req_str.indexOf("GET /factory5320004?") >= 0) {
+          pre_url = "GET /factory5320004";
           int16_t idx0 = req_str.indexOf("model_no=");
           if (idx0 >= 0) {
             String stmp = req_str.substring(
@@ -5285,7 +5325,8 @@ void wifi_access_point() {
             if (m_no >= 0 && m_no <= 4) {
               PARA.model_no = m_no;
               eeprom_write();
-              Serial.printf("Factory Model set: %d\n", PARA.model_no);
+              Serial.printf("Factory Model set: %d(%s)\r\n", PARA.model_no,
+                            get_model_name(PARA.model_no));
             }
           }
           client.print(html_res_head);
@@ -5293,9 +5334,9 @@ void wifi_access_point() {
           delay(10);
           client.stop();
           req_str = "";
-        } else if (req_str.indexOf("GET /factory2416") >= 0) {
+        } else if (req_str.indexOf("GET /factory5320004") >= 0) {
           PAGE_NUM = 0;
-          pre_url = "GET /factory2416";
+          pre_url = "GET /factory5320004";
           client.print(html_res_head);
           client.print(str_factory);
           delay(10);
@@ -5369,7 +5410,7 @@ void wifi_access_point() {
             client.print(str_meas_period);
           else if (pre_url.indexOf("GET /host_ip_set") >= 0)
             client.print(str_host_ip);
-          else if (pre_url.indexOf("GET /factory2416") >= 0)
+          else if (pre_url.indexOf("GET /factory5320004") >= 0)
             client.print(str_factory);
           else if (pre_url.indexOf("GET /ave_normal_set") >= 0)
             client.print(str_ave_normal);
@@ -5390,10 +5431,30 @@ void wifi_access_point() {
 }
 
 // -----------------------------------------------------------------------------
+// モデル名称取得
+// -----------------------------------------------------------------------------
+const char *get_model_name(int model_no) {
+  switch (model_no) {
+  case 0:
+    return "NOISE/VIBRATION";
+  case 1:
+    return "NORMAL 4CH CLOUD";
+  case 2:
+    return "NORMAL 4CH LOCAL";
+  case 3:
+    return "RAIN";
+  case 4:
+    return "NOISE/VIBRATION(10-min periodic)";
+  default:
+    return "UNKNOWN";
+  }
+}
+
+// -----------------------------------------------------------------------------
 // 起動時情報表示
 // -----------------------------------------------------------------------------
 void disp_info(void) {
-  Serial.println("\n================================");
+  Serial.println("\r\n================================");
 #if defined(VST100)
   Serial.println("VST-100");
 #elif defined(VST01R)
@@ -5403,66 +5464,79 @@ void disp_info(void) {
 #else
   Serial.println("VST-01-N");
 #endif
-  Serial.printf("Firmware Version: %s\n", FIRMWARE_VERSION);
+  Serial.printf("Firmware Version: %s\r\n", FIRMWARE_VERSION);
 
   update_client_id();
-  Serial.printf("ESP32 HARDWARE MAC: %s\n", get_hardware_mac().c_str());
+  Serial.printf("ESP32 HARDWARE MAC: %s\r\n", get_hardware_mac().c_str());
   if (PARA.use_custom_client_id == 1 && PARA.custom_client_id.length() > 0) {
-    Serial.printf("CLIENT_ID (Custom): %s\n", CLIENT_ID.c_str());
+    Serial.printf("CLIENT_ID (Custom): %s\r\n", CLIENT_ID.c_str());
   } else {
-    Serial.printf("CLIENT_ID (Hardware MAC): %s\n", CLIENT_ID.c_str());
+    Serial.printf("CLIENT_ID (Hardware MAC): %s\r\n", CLIENT_ID.c_str());
   }
-  Serial.printf("Publish Topic: %s\n", PARA.pub_topic.c_str());
-  Serial.printf("Model: %d\n", PARA.model_no);
+  Serial.printf("Publish Topic: %s\r\n", PARA.pub_topic.c_str());
+  Serial.printf("MODE: %d(%s)\r\n", PARA.model_no,
+                get_model_name(PARA.model_no));
   switch (PARA.model_no) {
   case 0:
-    Serial.println(
-        "NOISE/VIBRATION (CH1:noise, CH2:vibration, CH3:ave, CH4:ave)");
-    break;
-  case 1:
-    Serial.println("Normal 4ch cloud");
+    Serial.println("      (CH1:noise, CH2:vibration, CH3:ave, CH4:ave)");
     break;
   case 2:
-    Serial.printf("Normal 4ch local (Host IP: %s)\n", PARA.host_ip.c_str());
-    break;
-  case 3:
-    Serial.println("RAIN");
+    Serial.printf("      (Host IP: %s)\r\n", PARA.host_ip.c_str());
     break;
   case 4:
-    Serial.println("NOISE/VIBRATION(Every 10 minutes on the clock) (CH1:noise, "
-                   "CH2:vibration, CH3:ave, CH4:ave / 10-min periodic)");
+    Serial.println("      (CH1:noise, CH2:vibration, CH3:ave, CH4:ave / Every "
+                   "10 minutes on the clock)");
+    break;
+  default:
     break;
   }
-  Serial.printf("Meas Period: %d sec\n", PARA.meas_period);
-  Serial.printf("Shreshold: %.1f\n", PARA.shreshold);
-  Serial.println("================================\n");
+  Serial.printf("Meas Period: %d sec\r\n", PARA.meas_period);
+  Serial.printf("Shreshold: %.1f\r\n", PARA.shreshold);
+  Serial.println("================================");
 }
 
 // -----------------------------------------------------------------------------
-// APボタン チャタリング防止＆立ち下がりエッジ検出 (40ms確定)
+// APボタン チャタリング防止＆2秒長押し検出 (2000ms継続押下で確定)
 // -----------------------------------------------------------------------------
 boolean check_ap_button_pressed(void) {
   static unsigned long last_debounce_time = 0;
   static int last_raw_state = HIGH;
   static int stable_state = HIGH;
+  static unsigned long press_start_time = 0;
+  static boolean long_press_triggered = false;
 
   int raw_now = digitalRead(XAP_BTN);
   unsigned long now = millis();
 
+  // デバウンス処理 (状態変化検知)
   if (raw_now != last_raw_state) {
     last_debounce_time = now;
     last_raw_state = raw_now;
   }
 
-  if ((now - last_debounce_time) >= 40) // 40ms以上状態が安定しているか
-  {
+  // 40ms以上同じ状態が継続したら安定状態とみなす
+  if ((now - last_debounce_time) >= 40) {
     if (raw_now != stable_state) {
       stable_state = raw_now;
       if (stable_state == LOW) {
-        return true; // 新規押下イベント（立ち下がり確定）
+        // 安定してLOW（押下）になった
+        press_start_time = now;
+        long_press_triggered = false;
+      } else {
+        // ボタンが離された
+        long_press_triggered = false;
       }
     }
   }
+
+  // 安定してLOWが継続しており、かつ2秒（2000ms）以上経過した場合
+  if (stable_state == LOW && !long_press_triggered) {
+    if (now - press_start_time >= 2000) {
+      long_press_triggered = true;
+      return true; // 2秒長押し確定
+    }
+  }
+
   return false;
 }
 
@@ -5506,7 +5580,7 @@ void start_ap_mode(void) {
   delay(100);
   server.begin();
   Serial.println("HTTP Server started in AP mode (Open Network)");
-  Serial.printf("SoftAP SSID: %s (No Password), IP: %s\n", ap_ssid.c_str(),
+  Serial.printf("SoftAP SSID: %s (No Password), IP: %s\r\n", ap_ssid.c_str(),
                 WiFi.softAPIP().toString().c_str());
 
   // APモード開始時にバックグラウンドでWi-Fiスキャンを先行開始
@@ -5625,12 +5699,17 @@ void setup() {
 
   digitalWrite(STATUS_LED, LOW);
 
-  // 起動時のAPボタン押下判定（40ms安定確認でノイズによる誤動作を防止）
+  // 起動時のAPボタン長押し判定 (電源投入時に2秒長押しでAPモード起動)
   boolean ap_boot_req = false;
   if (digitalRead(XAP_BTN) == LOW) {
-    delay(40);
-    if (digitalRead(XAP_BTN) == LOW)
+    unsigned long boot_press_start = millis();
+    while (digitalRead(XAP_BTN) == LOW &&
+           (millis() - boot_press_start < 2000)) {
+      delay(20);
+    }
+    if (millis() - boot_press_start >= 2000) {
       ap_boot_req = true;
+    }
   }
 
   // Core間データ送信用キューの作成
@@ -5683,10 +5762,10 @@ void loop() {
       }
     }
   } else {
-    // 通常モード時: APボタンのチャタリング防止＆エッジ検出 (40ms確定)
-    // でSoftAPへ切替
+    // 通常モード時: APボタンの2秒長押し検出でSoftAPへ切替
     if (check_ap_button_pressed()) {
-      Serial.println("AP button pressed! Switching to SoftAP Mode...");
+      Serial.println(
+          "AP button long-pressed (2s)! Switching to SoftAP Mode...");
       start_ap_mode();
     }
   }
