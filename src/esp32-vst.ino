@@ -3895,8 +3895,7 @@ void wifi_connect(void) {
   if (time_adj_flag && !AP_MODE) {
     set_sysclcok();
   }
-  if (!AP_MODE && !mqtt_error_flag &&
-      (PARA.model_no == 2 || mqttClient.connected())) {
+  if (!AP_MODE && !mqtt_error_flag) {
     digitalWrite(STATUS_LED, LOW);
   }
   feed_watchdog();
@@ -3923,6 +3922,7 @@ void aws_mqtt_publish(char *str) {
     Serial.println("Published.");
     mqtt_error_flag = false;
     mqtt_consecutive_fail_cnt = 0;
+    digitalWrite(STATUS_LED, LOW);
     feed_watchdog();
   } else {
     Serial.println("Publish failed!");
@@ -5871,9 +5871,8 @@ void loop() {
     if (WiFi.status() != WL_CONNECTED) {
       // WiFi切断時: 2秒周期で点滅 (1秒ON / 1秒OFF)
       digitalWrite(STATUS_LED, (millis() / 1000) % 2 == 0 ? HIGH : LOW);
-    } else if (PARA.model_no != 2 &&
-               (!mqttClient.connected() || mqtt_error_flag)) {
-      // MQTT失敗時: 0.5秒周期で高速点滅 (0.25秒ON / 0.25秒OFF)
+    } else if (PARA.model_no != 2 && mqtt_error_flag) {
+      // MQTT送信失敗時: 0.5秒周期で高速点滅 (0.25秒ON / 0.25秒OFF)
       digitalWrite(STATUS_LED, (millis() / 250) % 2 == 0 ? HIGH : LOW);
     } else {
       digitalWrite(STATUS_LED, LOW);
