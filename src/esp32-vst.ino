@@ -24,6 +24,7 @@
 #include "esp_sntp.h"
 #include "esp_system.h"
 #include "time.h"
+#include <sys/time.h>
 
 #include <EEPROM.h>
 #include <HTTPClient.h>
@@ -2981,6 +2982,7 @@ String html_tag2 =
 // -----------------------------------------------------------------------------
 // 関数プロトタイプ宣言
 // -----------------------------------------------------------------------------
+void init_clock_from_build_time(void);
 boolean eeprom_read(void);
 void eeprom_write(void);
 void wifi_connect(void);
@@ -3477,6 +3479,7 @@ void read_mcp3424(void) {
     Wire.beginTransmission(0x68);
     Wire.write(0x80 + ch_num * 32);
     Wire.endTransmission();
+    delay(3); // 12bit変換所要時間(4.17ms)の大半をFreeRTOSにCPUを譲歩しながら待機
     unsigned long spl_start = millis();
     while (1) {
       Wire.requestFrom(0x68, 3);
@@ -3488,11 +3491,11 @@ void read_mcp3424(void) {
           RAW_MD[ch_num] = PRE_RAW_MD[ch_num];
         }
         PRE_RAW_MD[ch_num] = RAW_MD[ch_num];
-        break; // 変換完了後、余分なディレイを挟まず即座に次のチャンネルへ
+        break; // 変換完了後、即座に次のチャンネルへ
       } else if (millis() - spl_start >= adc_conv_time) {
         break;
       }
-      delayMicroseconds(100);
+      delay(1); // ビジーループを回避し、CPUとI2Cバスを譲歩
     }
   }
 #endif
@@ -3703,15 +3706,55 @@ void measurement_task(void *pvParameters) {
 // -----------------------------------------------------------------------------
 // 通信・AWS IoT / Local Server モジュール
 // -----------------------------------------------------------------------------
+void init_clock_from_build_time(void) {
+  int year = 2026;
+  int month = 8; // 9月 (0-indexed: 8 = 9月)
+  int day = 27;
+  int hour = 0;
+  int minute = 0;
+  int second = 0;
+
+  // JSTタイムゾーン設定 (UTC+9)
+  setenv("TZ", "JST-9", 1);
+  tzset();
+
+  struct tm t;
+  memset(&t, 0, sizeof(t));
+  t.tm_year = year - 1900;
+  t.tm_mon = month;
+  t.tm_mday = day;
+  t.tm_hour = hour;
+  t.tm_min = minute;
+  t.tm_sec = second;
+  t.tm_isdst = -1;
+
+  time_t fallback_epoch = mktime(&t);
+  if (fallback_epoch == (time_t)-1) {
+    // 2026-09-27 00:00:00 JST = 1790434800 (UTC)
+    fallback_epoch = 1790434800;
+  }
+  // 起動からの経過秒数を加算して時計の進行を反映
+  fallback_epoch += (millis() / 1000);
+  struct timeval tv = {.tv_sec = fallback_epoch, .tv_usec = 0};
+  settimeofday(&tv, NULL);
+  time(&CUR_TIME);
+  Serial.printf("[Clock] System time initialized to fallback: %04d/%02d/%02d %02d:%02d:%02d\r\n",
+                year, month + 1, day, hour, minute, second);
+}
+
 boolean set_date_time(int no) {
+  feed_watchdog();
   configTime(JST, 0, ntp_server[no]);
-  getLocalTime(&TIMEINFO);
-  for (int i = 0; i < 3; i++) {
-    if (getLocalTime(&TIMEINFO)) {
+  // NTP同期完了をポーリング (最大3秒)
+  for (int i = 0; i < 6; i++) {
+    feed_watchdog();
+    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+      getLocalTime(&TIMEINFO, 100);
       Serial.print(ntp_server[no]);
       Serial.println(" success");
       return true;
     }
+    delay(500);
   }
   Serial.print(ntp_server[no]);
   Serial.println(" fail");
@@ -3721,10 +3764,16 @@ boolean set_date_time(int no) {
 boolean set_sysclcok() {
   int no = 0;
   while (!set_date_time(no)) {
+    feed_watchdog();
     no++;
     if (no > 2) {
-      Serial.println("time adjust fail");
+      Serial.println("time adjust fail (will retry in background)");
       ntp_synced = false;
+      time(&CUR_TIME);
+      struct tm *tm = localtime(&CUR_TIME);
+      if (tm->tm_year + 1900 < 2026) {
+        init_clock_from_build_time();
+      }
       return false;
     }
   }
@@ -3742,6 +3791,7 @@ void setup_awsiot() {
   httpsClient.setCACert(rootCA);
   httpsClient.setCertificate(certificate);
   httpsClient.setPrivateKey(privateKey);
+  httpsClient.setTimeout(10); // ソケット通信タイムアウト (秒)
   mqttClient.setServer(awsEndpoint, awsPort);
   mqttClient.setCallback(mqttCallback);
 }
@@ -3754,6 +3804,8 @@ void connect_awsiot() {
       start_ap_mode();
       return;
     }
+    feed_watchdog();
+    delay(50); // FreeRTOSタスクスイッチを促し、Core 1とのリソース競合・Interrupt WDTを防止
     Serial.print("Attempting MQTT connection...");
     if (mqttClient.connect(CLIENT_ID.c_str())) {
       Serial.println("connected");
@@ -3889,6 +3941,8 @@ void wifi_connect(void) {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
+    digitalWrite(STATUS_LED, LOW); // 接続成功時に直ちに消灯
+    WiFi.setSleep(false);          // Modem-sleepを無効化
     Serial.print("WiFi connected! IP address: ");
     Serial.println(WiFi.localIP());
   }
@@ -3899,6 +3953,7 @@ void wifi_connect(void) {
     digitalWrite(STATUS_LED, LOW);
   }
   feed_watchdog();
+  delay(100);
 }
 
 void aws_mqtt_publish(char *str) {
@@ -4035,6 +4090,11 @@ void comm_publish_meas_data(float *sdata) {
     float ftmp = sdata[24] * PARA.pulse_weight; // 1pulse = PARA.pulse_weight mm
     time(&CUR_TIME);
     struct tm *tm = localtime(&CUR_TIME);
+    if (tm->tm_year + 1900 < 2026) {
+      init_clock_from_build_time();
+      time(&CUR_TIME);
+      tm = localtime(&CUR_TIME);
+    }
     if (tm->tm_min == 10) {
       RAIN_OTH = ftmp;
       RCNT = 0;
@@ -4058,11 +4118,25 @@ void comm_publish_meas_data(float *sdata) {
     sprintf(st_ch2, "%.2f", sdata[11]); // ch2 ave
     sprintf(st_ch3, "%.2f", sdata[21]); // ch3 ave
     sprintf(st_ch4, "%.2f", sdata[23]); // ch4 ave
-    sprintf(st_mon, "%02d", tm->tm_mon + 1);
-    sprintf(st_day, "%02d", tm->tm_mday);
-    sprintf(st_hour, "%02d", tm->tm_hour);
-    sprintf(st_min, "%02d", tm->tm_min);
-    sprintf(st_year, "%d", tm->tm_year + 1900);
+
+    int pub_year = tm->tm_year + 1900;
+    int pub_mon = tm->tm_mon + 1;
+    int pub_day = tm->tm_mday;
+    int pub_hour = tm->tm_hour;
+    int pub_min = tm->tm_min;
+
+    // 時刻を取得できない場合(1970年等)、1970年ではなく2026/09/27にする
+    if (pub_year < 2026) {
+      pub_year = 2026;
+      pub_mon = 9;
+      pub_day = 27;
+    }
+
+    sprintf(st_mon, "%02d", pub_mon);
+    sprintf(st_day, "%02d", pub_day);
+    sprintf(st_hour, "%02d", pub_hour);
+    sprintf(st_min, "%02d", pub_min);
+    sprintf(st_year, "%d", pub_year);
     sprintf(st_time, "%s%s%s%s%s", st_year, st_mon, st_day, st_hour, st_min);
 
     sprintf(pub_msg,
@@ -5668,6 +5742,7 @@ void start_normal_mode(void) {
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false); // Modem-sleepを無効化し、RF PHY再キャリブレーションによるCore 1停止を防止
 
   // ボタンが離されるのを待機
   wait_button_released();
@@ -5685,6 +5760,7 @@ void start_normal_mode(void) {
 
   if (!AP_MODE && PARA.model_no != 2) // Model 2 (Local Server) 以外はAWS接続
   {
+    delay(300); // ネットワークスタック安定化
     setup_awsiot();
     aws_connect();
   }
@@ -5745,6 +5821,7 @@ void setup() {
   RELAY_STATE = false;
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000); // 400kHz I2C Fast Mode (MCP3424の高速サンプリング用)
+  Wire.setTimeOut(50);   // I2Cバスタイムアウト 50ms (フリーズ・ロック防止)
   Serial.begin(115200, SERIAL_8N1, -1,
                1); // TX(GPIO1)のみ有効化、RX(GPIO3)はUARTから切り離し
   pinMode(
@@ -5756,6 +5833,9 @@ void setup() {
   load_saved_wifi_credentials();
   for (int i = 0; i < 4; i++)
     PRE_RAW_MD[i] = 0;
+
+  // システム時刻をフォールバック日時（2026/09/27 00:00:00）で初期化 (NTP未同期時のフォールバック用)
+  init_clock_from_build_time();
 
   disp_info();
 
@@ -5777,8 +5857,8 @@ void setup() {
   // Core間データ送信用キューの作成
   sendDataQueue = xQueueCreate(5, sizeof(MeasSendData));
 
-  // 測定専用タスクの起動 (Core 1に固定・通信から完全独立)
-  xTaskCreatePinnedToCore(measurement_task, "meas_task", 8192, NULL, 2,
+  // 測定専用タスクの起動 (Core 1に固定、優先度1でloopTaskと同等協調動作)
+  xTaskCreatePinnedToCore(measurement_task, "meas_task", 8192, NULL, 1,
                           &measTaskHandle, 1);
 
   if (ap_boot_req) {
@@ -5794,10 +5874,12 @@ void setup() {
     timerWrite(timer, 0);
     timerAlarmEnable(timer);
 
+    WiFi.setSleep(false); // Modem-sleepを無効化し、RF PHY再キャリブレーションによるCore 1停止を防止
     wifi_connect();
 
     if (!AP_MODE && PARA.model_no != 2) // Model 2 (Local Server) 以外はAWS接続
     {
+      delay(300); // ネットワークスタック安定化
       setup_awsiot();
       aws_connect();
     }
@@ -5901,6 +5983,11 @@ void loop() {
     if (PARA.model_no == 3 || PARA.model_no == 4) {
       time(&CUR_TIME);
       struct tm *tm = localtime(&CUR_TIME);
+      if (tm->tm_year + 1900 < 2026) {
+        init_clock_from_build_time();
+        time(&CUR_TIME);
+        tm = localtime(&CUR_TIME);
+      }
       CUR_MIN = tm->tm_min;
 
       // AM 03:05 にNTP時刻合わせ
