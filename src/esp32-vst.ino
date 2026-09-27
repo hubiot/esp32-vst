@@ -148,16 +148,19 @@ WiFiClientSecure httpsClient;
 PubSubClient mqttClient(httpsClient);
 volatile boolean mqtt_error_flag = false; // MQTT送信失敗・未接続フラグ
 #define MQTT_MAX_FAIL_COUNT 5             // MQTT連続失敗時の本体再起動しきい値
-#define WIFI_MAX_FAIL_COUNT 5        // WiFi連続接続失敗時の本体再起動しきい値
-#define MIN_FREE_HEAP_BYTES 20000    // 最低空きヒープメモリ (20KB未満で予防的再起動)
+#define WIFI_MAX_FAIL_COUNT 5 // WiFi連続接続失敗時の本体再起動しきい値
+#define MIN_FREE_HEAP_BYTES                                                    \
+  20000 // 最低空きヒープメモリ (20KB未満で予防的再起動)
 int mqtt_consecutive_fail_cnt = 0;   // MQTT連続失敗カウンタ
 volatile boolean ntp_synced = false; // NTP時刻同期完了フラグ
 
 hw_timer_t *timer = NULL; // Watchdog Timer用 (常時死活監視 15秒)
-volatile unsigned long last_meas_alive_time = 0; // Core 1 (測定タスク) の最終生存確認時刻
+volatile unsigned long last_meas_alive_time =
+    0; // Core 1 (測定タスク) の最終生存確認時刻
 
 // ウォッチドッグタイマのフィード処理
-// Core 0 (メイン/通信) と Core 1 (測定タスク) の両方が正常に稼働している時のみフィード
+// Core 0 (メイン/通信) と Core 1 (測定タスク)
+// の両方が正常に稼働している時のみフィード
 void feed_watchdog(void) {
   if (last_meas_alive_time == 0 || (millis() - last_meas_alive_time < 10000)) {
     if (timer) {
@@ -167,14 +170,15 @@ void feed_watchdog(void) {
 }
 
 // 測定関連変数
-unsigned int SMPL_TIME = 100; // サンプリングタイム (通常100ms, 設定時1000ms)
+volatile unsigned int SMPL_TIME =
+    100; // サンプリングタイム (通常100ms, 設定時1000ms)
 unsigned int RAIN_SMPL_TIME = 10;   // 雨量計パルスサンプリングタイム 10ms
 unsigned long RAIN_DETECT_TIME = 0; // 雨量計パルスチェック時刻
 unsigned long MEAS_TIME = 0;        // ADCサンプリング時刻
 unsigned int MCNT = 0;              // サンプリング回数カウンタ
 double LEQ[2] = {0, 0};
 boolean FIRST_FLAG = true;
-boolean RAIN_FLAG = false; // 雨量測定データ送信トリガー
+volatile boolean RAIN_FLAG = false; // 雨量測定データ送信トリガー
 
 volatile int RAIN_CNT = 0;     // 雨量カウント数
 int RAIN_PULSE[3] = {0, 0, 0}; // チャタリング除去用
@@ -4578,7 +4582,7 @@ void wifi_set_proc() {
   Serial.println("client disconnected");
 }
 
-static unsigned long auto_reboot_time = 0;
+static volatile unsigned long auto_reboot_time = 0;
 
 void send_wifi_success_page(IPAddress ip) {
   String html =
@@ -5412,8 +5416,7 @@ void wifi_access_point() {
                         " MB (" + String(ESP.getFlashChipSize()) + " bytes)," +
                         String(ESP.getFreeSketchSpace() / (1024 * 1024.0), 2) +
                         " MB," + get_hardware_mac() + "," +
-                        String(FIRMWARE_VERSION) + " (" + __DATE__ + " " +
-                        __TIME__ + ")";
+                        String(FIRMWARE_VERSION);
           client.print(stmp.c_str());
           delay(10);
           client.stop();
@@ -5744,7 +5747,9 @@ void setup() {
   Wire.setClock(400000); // 400kHz I2C Fast Mode (MCP3424の高速サンプリング用)
   Serial.begin(115200, SERIAL_8N1, -1,
                1); // TX(GPIO1)のみ有効化、RX(GPIO3)はUARTから切り離し
-  pinMode(RX0_PIN, INPUT_PULLUP); // ライター接続時の衝突防止のためプルアップ入力(HIGH保持)
+  pinMode(
+      RX0_PIN,
+      INPUT_PULLUP); // ライター接続時の衝突防止のためプルアップ入力(HIGH保持)
 
   // パラメータ読み出し
   eeprom_read();
@@ -5803,15 +5808,23 @@ void setup() {
 // Arduino loop() (通信・Web UI・MQTT・AP処理タスク)
 // -----------------------------------------------------------------------------
 void loop() {
+  // Serial2: RXから受信したデータをそのままTXへ出力 (エコーバック)
+  // ハードチェック用
+  // while (Serial2.available()) {
+  //   Serial2.write(Serial2.read());
+  // }
+
   feed_watchdog();
 
-  // 低ヒープ監視 (メモリ枯渇・断片化によるハングアップ防止: 20KB未満で予防的再起動)
+  // 低ヒープ監視 (メモリ枯渇・断片化によるハングアップ防止:
+  // 20KB未満で予防的再起動)
   static unsigned long last_heap_check_time = 0;
   if (millis() - last_heap_check_time > 10000) {
     last_heap_check_time = millis();
     uint32_t free_heap = ESP.getFreeHeap();
     if (free_heap < MIN_FREE_HEAP_BYTES) {
-      Serial.printf("[Memory] Critically low heap detected: %u bytes (< %d). Restarting ESP32...\r\n",
+      Serial.printf("[Memory] Critically low heap detected: %u bytes (< %d). "
+                    "Restarting ESP32...\r\n",
                     free_heap, MIN_FREE_HEAP_BYTES);
       digitalWrite(STATUS_LED, LOW);
       delay(200);
