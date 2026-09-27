@@ -47,11 +47,11 @@ const int SCL_PIN = 22; // I2C MCP3424 SCL
 #define RELAY_OUT 33    // リレー出力
 #define XAP_BTN 35      // APモード切替ボタン (入力のみ・プルアップなし)
 #define CXS_PIN 25      // CXS
-#define RX_PIN 16       // RX (GPIO16)
-#define TX_PIN 17       // TX (GPIO17)
-#define IO18_PIN 18     // GPIO18 (VST-01用)
-#define IO19_PIN 19     // GPIO19 (VST-01用)
-#define IO23_PIN 23     // GPIO23 (VST-01用)
+#define RX2_PIN 16      // RX2 (GPIO16)
+#define TX2_PIN 17      // TX2 (GPIO17)
+#define RX1_PIN 26      // GPIO26 (Serial1 RX dummy用)
+#define TX1_PIN 27      // GPIO27 (Serial1 TX dummy用)
+#define RX0_PIN 3       // GPIO3 (Serial0 RX)
 
 #define JST (3600 * 9)
 
@@ -122,9 +122,10 @@ String ssid_rssi_str[30];
 String ssid_str[30];
 String Selected_SSID_str;
 String Sel_SSID_PASS_str;
-String CLIENT_ID;        // MACアドレスベースのユニークID
-volatile boolean AP_MODE = false; // true:アクセスポイントモード false:通常モード
-int PAGE_NUM = 0;        // 0:wifi set 1:parameter set
+String CLIENT_ID; // MACアドレスベースのユニークID
+volatile boolean AP_MODE =
+    false;        // true:アクセスポイントモード false:通常モード
+int PAGE_NUM = 0; // 0:wifi set 1:parameter set
 
 int CHATTERING_AP[3] = {1, 1, 1}; // APボタンチャタリング対策
 int CHATTERING_CNT = 0;
@@ -146,10 +147,24 @@ const int awsPort = 8883;
 WiFiClientSecure httpsClient;
 PubSubClient mqttClient(httpsClient);
 volatile boolean mqtt_error_flag = false; // MQTT送信失敗・未接続フラグ
-volatile boolean ntp_synced = false;     // NTP時刻同期完了フラグ
-volatile boolean wdt_reset_triggered = false; // WDT割込リセット要求フラグ
+#define MQTT_MAX_FAIL_COUNT 5             // MQTT連続失敗時の本体再起動しきい値
+#define WIFI_MAX_FAIL_COUNT 5        // WiFi連続接続失敗時の本体再起動しきい値
+#define MIN_FREE_HEAP_BYTES 20000    // 最低空きヒープメモリ (20KB未満で予防的再起動)
+int mqtt_consecutive_fail_cnt = 0;   // MQTT連続失敗カウンタ
+volatile boolean ntp_synced = false; // NTP時刻同期完了フラグ
 
-hw_timer_t *timer = NULL; // Watchdog Timer用
+hw_timer_t *timer = NULL; // Watchdog Timer用 (常時死活監視 15秒)
+volatile unsigned long last_meas_alive_time = 0; // Core 1 (測定タスク) の最終生存確認時刻
+
+// ウォッチドッグタイマのフィード処理
+// Core 0 (メイン/通信) と Core 1 (測定タスク) の両方が正常に稼働している時のみフィード
+void feed_watchdog(void) {
+  if (last_meas_alive_time == 0 || (millis() - last_meas_alive_time < 10000)) {
+    if (timer) {
+      timerWrite(timer, 0);
+    }
+  }
+}
 
 // 測定関連変数
 unsigned int SMPL_TIME = 100; // サンプリングタイム (通常100ms, 設定時1000ms)
@@ -161,7 +176,7 @@ double LEQ[2] = {0, 0};
 boolean FIRST_FLAG = true;
 boolean RAIN_FLAG = false; // 雨量測定データ送信トリガー
 
-volatile int RAIN_CNT = 0;              // 雨量カウント数
+volatile int RAIN_CNT = 0;     // 雨量カウント数
 int RAIN_PULSE[3] = {0, 0, 0}; // チャタリング除去用
 int PLS = 0;
 int PRE_PLS = 0;
@@ -3149,15 +3164,7 @@ void update_client_id(void) {
   }
 }
 
-static volatile int wdt_isr_count = 0;
-void IRAM_ATTR resetModule() {
-  wdt_reset_triggered = true;
-  wdt_isr_count++;
-  if (wdt_isr_count > 2) {
-    // メインループが完全にハングして処理できない場合、ハードウェアリセットを強制実行
-    esp_system_abort("WDT hard timeout");
-  }
-}
+void IRAM_ATTR resetModule() { esp_restart(); }
 
 // -----------------------------------------------------------------------------
 // WiFi設定永続保存 (Preferences / NVS) - 直近の1組のみ保持
@@ -3672,6 +3679,7 @@ void measurement_task(void *pvParameters) {
   while (1) {
     // 累積ドリフトなしの厳密な10ms周期ウェイクアップ
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    last_meas_alive_time = millis(); // Core 1 生存シグナル更新
     unsigned long now = millis();
 
     // 10ms周期 雨量パルス監視
@@ -3739,8 +3747,6 @@ void connect_awsiot() {
     if (check_ap_button_pressed()) {
       Serial.println("AP button long-pressed (2s) during connect_awsiot! "
                      "Switching to SoftAP Mode...");
-      if (timer)
-        timerAlarmDisable(timer);
       start_ap_mode();
       return;
     }
@@ -3748,18 +3754,31 @@ void connect_awsiot() {
     if (mqttClient.connect(CLIENT_ID.c_str())) {
       Serial.println("connected");
       mqtt_error_flag = false;
+      mqtt_consecutive_fail_cnt = 0;
       digitalWrite(STATUS_LED, LOW);
+      feed_watchdog();
+      return;
     } else {
       mqtt_error_flag = true;
+      mqtt_consecutive_fail_cnt++;
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
+      Serial.printf(" (consecutive fail: %d/%d)\r\n", mqtt_consecutive_fail_cnt,
+                    MQTT_MAX_FAIL_COUNT);
+
+      if (mqtt_consecutive_fail_cnt >= MQTT_MAX_FAIL_COUNT) {
+        Serial.println("[MQTT] Connection failed 5 times continuously! "
+                       "Restarting ESP32 (Reset)...");
+        digitalWrite(STATUS_LED, LOW);
+        delay(200);
+        esp_restart();
+      }
+
       Serial.println(" try again in 5 seconds");
       for (int k = 0; k < 50; k++) {
         if (check_ap_button_pressed() && !AP_MODE) {
           Serial.println("AP button long-pressed (2s) during MQTT retry! "
                          "Switching to SoftAP Mode...");
-          if (timer)
-            timerAlarmDisable(timer);
           start_ap_mode();
           return;
         }
@@ -3767,7 +3786,10 @@ void connect_awsiot() {
                                      ? HIGH
                                      : LOW); // MQTT失敗時: 0.5秒周期で高速点滅
         delay(100);
+        if (k % 10 == 0)
+          feed_watchdog();
       }
+      feed_watchdog();
     }
   }
 }
@@ -3784,69 +3806,84 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
 void aws_connect(void) {
   if (AP_MODE)
     return;
-  if (timer) {
-    timerAlarmWrite(timer, 21000000, false);
-    timerWrite(timer, 0);
-    timerAlarmEnable(timer);
-  }
+  feed_watchdog();
   if (!mqttClient.connected()) {
     Serial.println("connecting AWS IoT...");
     connect_awsiot();
   }
-  if (timer)
-    timerAlarmDisable(timer);
 }
 
 void wifi_connect(void) {
   if (AP_MODE)
     return;
-  int i = 0;
-  boolean time_adj_flag = (WiFi.status() != WL_CONNECTED);
-  if (timer) {
-    timerAlarmWrite(timer, 8000000, false);
-    timerWrite(timer, 0);
-    timerAlarmEnable(timer);
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
   }
+
+  boolean time_adj_flag = true;
+  feed_watchdog();
 
   // 保存済みクレデンシャルが未ロードならロード
   if (Selected_SSID_str.length() == 0) {
     load_saved_wifi_credentials();
   }
 
-  // 保存されたSSIDがあれば、明示的にbeginを実行
-  if (WiFi.status() != WL_CONNECTED && Selected_SSID_str.length() > 0) {
-    Serial.printf("Connecting to saved WiFi: %s\r\n",
-                  Selected_SSID_str.c_str());
-    WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
-  }
-
+  int wifi_retry_cnt = 0;
   while (WiFi.status() != WL_CONNECTED && !AP_MODE) {
-    for (int k = 0; k < 10; k++) {
-      if (check_ap_button_pressed() && AP_MODE == false) {
+    wifi_retry_cnt++;
+    Serial.printf("[WiFi] Connecting to %s (attempt %d/%d)...\r\n",
+                  Selected_SSID_str.c_str(), wifi_retry_cnt,
+                  WIFI_MAX_FAIL_COUNT);
+
+    if (Selected_SSID_str.length() > 0) {
+      WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
+    } else {
+      WiFi.begin();
+    }
+
+    // 1回の試行につき最大5秒間待機（100msごとに接続完了とAPボタンをチェック）
+    for (int k = 0; k < 50; k++) {
+      if (check_ap_button_pressed() && !AP_MODE) {
         Serial.println("AP button long-pressed (2s) during wifi_connect! "
                        "Switching to SoftAP Mode...");
-        if (timer)
-          timerAlarmDisable(timer);
         start_ap_mode();
         return;
       }
+
+      if (WiFi.status() == WL_CONNECTED) {
+        break;
+      }
+
       digitalWrite(STATUS_LED,
                    (millis() / 1000) % 2 == 0
                        ? HIGH
                        : LOW); // WiFi切断時: 2秒周期で点滅 (1秒ON/1秒OFF)
       delay(100);
+      if (k % 10 == 0)
+        feed_watchdog();
     }
-    Serial.print("WiFi connecting ");
-    Serial.println(i++);
-    if (i >= 3) {
-      if (Selected_SSID_str.length() > 0) {
-        WiFi.begin(Selected_SSID_str.c_str(), Sel_SSID_PASS_str.c_str());
-      } else {
-        WiFi.begin();
-      }
-      i = 0;
+
+    if (WiFi.status() == WL_CONNECTED) {
+      break;
     }
+
+    Serial.printf("[WiFi] Connect failed (attempt %d/%d)\r\n", wifi_retry_cnt,
+                  WIFI_MAX_FAIL_COUNT);
+
+    if (wifi_retry_cnt >= WIFI_MAX_FAIL_COUNT) {
+      Serial.println("[WiFi] Connection failed 5 times continuously! "
+                     "Restarting ESP32 (Reset)...");
+      digitalWrite(STATUS_LED, LOW);
+      delay(200);
+      esp_restart();
+    }
+
+    // 次のリトライ前にWDTをフィード & WiFi切断でクリーンアップ
+    feed_watchdog();
+    WiFi.disconnect();
+    delay(200);
   }
+
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("WiFi connected! IP address: ");
     Serial.println(WiFi.localIP());
@@ -3858,8 +3895,7 @@ void wifi_connect(void) {
       (PARA.model_no == 2 || mqttClient.connected())) {
     digitalWrite(STATUS_LED, LOW);
   }
-  if (timer)
-    timerAlarmDisable(timer);
+  feed_watchdog();
 }
 
 void aws_mqtt_publish(char *str) {
@@ -3869,6 +3905,7 @@ void aws_mqtt_publish(char *str) {
   if (AP_MODE)
     return;
   mqttClient.loop();
+  feed_watchdog();
 #if NOISE_VIB_DEBUG > 0
   for (int i = 0; i < 4; i++) {
     Serial.printf("  CH%d: LARGE=%.2f (ADC=%d), SMALL=%.2f (ADC=%d)\r\n", i + 1,
@@ -3881,9 +3918,22 @@ void aws_mqtt_publish(char *str) {
   if (mqttClient.publish(PARA.pub_topic.c_str(), str)) {
     Serial.println("Published.");
     mqtt_error_flag = false;
+    mqtt_consecutive_fail_cnt = 0;
+    feed_watchdog();
   } else {
     Serial.println("Publish failed!");
     mqtt_error_flag = true;
+    mqtt_consecutive_fail_cnt++;
+    Serial.printf("[MQTT] Publish failed (consecutive fail: %d/%d)\r\n",
+                  mqtt_consecutive_fail_cnt, MQTT_MAX_FAIL_COUNT);
+    mqttClient.disconnect();
+    if (mqtt_consecutive_fail_cnt >= MQTT_MAX_FAIL_COUNT) {
+      Serial.println("[MQTT] Publish failed 5 times continuously! "
+                     "Restarting ESP32 (Reset)...");
+      digitalWrite(STATUS_LED, LOW);
+      delay(200);
+      esp_restart();
+    }
   }
 }
 
@@ -5574,6 +5624,7 @@ void start_ap_mode(void) {
     timerAlarmDisable(timer);
   if (mqttClient.connected())
     mqttClient.disconnect();
+  mqtt_consecutive_fail_cnt = 0;
   digitalWrite(STATUS_LED, HIGH);
   AP_MODE = true;
   load_saved_wifi_credentials();
@@ -5618,15 +5669,14 @@ void start_normal_mode(void) {
   // ボタンが離されるのを待機
   wait_button_released();
 
-  // Watchdog timer初期化
+  // Watchdog timer初期化 (15秒, オートリロード)
   if (timer == NULL) {
     timer = timerBegin(0, 80, true);
     timerAttachInterrupt(timer, &resetModule, true);
-  } else {
-    timerAlarmWrite(timer, 8000000, false);
-    timerWrite(timer, 0);
-    timerAlarmEnable(timer);
   }
+  timerAlarmWrite(timer, 15000000, true);
+  timerWrite(timer, 0);
+  timerAlarmEnable(timer);
 
   wifi_connect();
 
@@ -5644,62 +5694,57 @@ void start_normal_mode(void) {
 void setup() {
 
 #if defined(VST01R)
-  // serial1
-  // cxs(25)
-  pinMode(XAP_BTN, INPUT);
-  pinMode(PULSE_IN, INPUT);
-  pinMode(RELAY_OUT, OUTPUT);
-  digitalWrite(RELAY_OUT, LOW);
-  // pinMode(CXS_PIN, OUTPUT);
-  // digitalWrite(CXS_PIN, HIGH);
-  pinMode(STATUS_LED, OUTPUT);
-  digitalWrite(STATUS_LED, LOW);
-  // serial2
+  // serial1 未接続
+  // cxs(25) 未接続
+  pinMode(XAP_BTN, INPUT);                             // apボタン
+  pinMode(PULSE_IN, INPUT);                            // パルス入力
+  pinMode(RELAY_OUT, OUTPUT);                          // リレー出力
+  digitalWrite(RELAY_OUT, LOW);                        // LOWでON
+  pinMode(STATUS_LED, OUTPUT);                         // led
+  digitalWrite(STATUS_LED, LOW);                       // LOWで消灯
+  Serial2.begin(115200, SERIAL_8N1, RX2_PIN, TX2_PIN); // RX: GPIO16, TX: GPIO17
 #endif
 
 #if defined(VST100)
-  // serial1
-  pinMode(CXS_PIN, OUTPUT);
-  digitalWrite(CXS_PIN, HIGH);
-  pinMode(XAP_BTN, INPUT);
-  pinMode(PULSE_IN, INPUT);
-  pinMode(RELAY_OUT, OUTPUT);
-  digitalWrite(RELAY_OUT, LOW);
-  pinMode(STATUS_LED, OUTPUT);
-  digitalWrite(STATUS_LED, LOW);
-  // serial2
+  pinMode(TX1_PIN, OUTPUT);      // tx1 serial1はdummyにつながっていてハイ固定
+  digitalWrite(TX1_PIN, HIGH);   // HIGH固定
+  pinMode(RX1_PIN, OUTPUT);      // rx1 serial1はdummyにつながっていてハイ固定
+  digitalWrite(RX1_PIN, HIGH);   // HIGH固定
+  pinMode(CXS_PIN, OUTPUT);      // cxs
+  digitalWrite(CXS_PIN, HIGH);   // HIGH固定
+  pinMode(XAP_BTN, INPUT);       // apボタン
+  pinMode(PULSE_IN, INPUT);      // パルス入力
+  pinMode(RELAY_OUT, OUTPUT);    // リレー出力
+  digitalWrite(RELAY_OUT, LOW);  // LOWでON
+  pinMode(STATUS_LED, OUTPUT);   // status led
+  digitalWrite(STATUS_LED, LOW); // LOWで消灯
+  // Serial2.begin(115200, SERIAL_8N1, RX2_PIN, TX2_PIN); //
+  // serial2未使用(RX:GPIO16, TX: GPIO17)
 #endif
 
 #if defined(VST01)
-  pinMode(IO18_PIN, INPUT);
-  pinMode(IO19_PIN, INPUT);
-  pinMode(IO23_PIN, INPUT);
-  // serial1
-  pinMode(CXS_PIN, OUTPUT);
-  digitalWrite(CXS_PIN, HIGH);
-  pinMode(XAP_BTN, INPUT);
-  pinMode(PULSE_IN, INPUT);
-  pinMode(RELAY_OUT, OUTPUT);
-  digitalWrite(RELAY_OUT, LOW);
-  pinMode(STATUS_LED, OUTPUT);
-  digitalWrite(STATUS_LED, LOW);
-  // serial2
+  pinMode(TX1_PIN, OUTPUT);      // tx1 serial1はdummyにつながっていてハイ固定
+  digitalWrite(TX1_PIN, HIGH);   // HIGH固定
+  pinMode(RX1_PIN, OUTPUT);      // rx1 serial1はdummyにつながっていてハイ固定
+  digitalWrite(RX1_PIN, HIGH);   // HIGH固定
+  pinMode(CXS_PIN, OUTPUT);      // cxs
+  digitalWrite(CXS_PIN, HIGH);   // HIGH固定
+  pinMode(XAP_BTN, INPUT);       // apボタン
+  pinMode(PULSE_IN, OUTPUT);     // パルス入力 vst01ではio4はRS486のRE出力
+  digitalWrite(PULSE_IN, HIGH);  // HIGH
+  pinMode(RELAY_OUT, OUTPUT);    // リレー出力 vst01ではio33はRS486のDE出力
+  digitalWrite(RELAY_OUT, HIGH); // HIGH固定
+  pinMode(STATUS_LED, OUTPUT);   // status led
+  digitalWrite(STATUS_LED, LOW); // LOWで消灯
+  Serial2.begin(115200, SERIAL_8N1, RX2_PIN, TX2_PIN); // RX: GPIO16, TX: GPIO17
 #endif
+
   RELAY_STATE = false;
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000); // 400kHz I2C Fast Mode (MCP3424の高速サンプリング用)
-  Serial.begin(
-      115200, SERIAL_8N1, -1,
-      1); // TX(GPIO1)のみ有効化、RX(GPIO3)は無効化してフローティングノイズ防止
-#if defined(VST100)
-  // VST100: シリアル1は使用せず、RX/TXともにHIGHを出力
-  pinMode(RX_PIN, OUTPUT);
-  digitalWrite(RX_PIN, HIGH);
-  pinMode(TX_PIN, OUTPUT);
-  digitalWrite(TX_PIN, HIGH);
-#else
-  Serial2.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN); // RX: GPIO16, TX: GPIO17
-#endif
+  Serial.begin(115200, SERIAL_8N1, -1,
+               1); // TX(GPIO1)のみ有効化、RX(GPIO3)はUARTから切り離し
+  pinMode(RX0_PIN, INPUT_PULLUP); // ライター接続時の衝突防止のためプルアップ入力(HIGH保持)
 
   // パラメータ読み出し
   eeprom_read();
@@ -5737,9 +5782,12 @@ void setup() {
     Serial.println("Starting in Normal Mode...");
     delay(10);
 
-    // Watchdog Timer初期化 (80分周 = 1us単位)
+    // Watchdog Timer初期化 (80分周 = 1us単位, 15秒, オートリロード)
     timer = timerBegin(0, 80, true);
     timerAttachInterrupt(timer, &resetModule, true);
+    timerAlarmWrite(timer, 15000000, true);
+    timerWrite(timer, 0);
+    timerAlarmEnable(timer);
 
     wifi_connect();
 
@@ -5755,11 +5803,20 @@ void setup() {
 // Arduino loop() (通信・Web UI・MQTT・AP処理タスク)
 // -----------------------------------------------------------------------------
 void loop() {
-  // WDTタイマー割込検知時の安全な再起動処理 (ISRコンテキスト外での実行)
-  if (wdt_reset_triggered) {
-    Serial.println("[WDT] Watchdog timer triggered! Restarting ESP32 safely...");
-    delay(50);
-    esp_restart();
+  feed_watchdog();
+
+  // 低ヒープ監視 (メモリ枯渇・断片化によるハングアップ防止: 20KB未満で予防的再起動)
+  static unsigned long last_heap_check_time = 0;
+  if (millis() - last_heap_check_time > 10000) {
+    last_heap_check_time = millis();
+    uint32_t free_heap = ESP.getFreeHeap();
+    if (free_heap < MIN_FREE_HEAP_BYTES) {
+      Serial.printf("[Memory] Critically low heap detected: %u bytes (< %d). Restarting ESP32...\r\n",
+                    free_heap, MIN_FREE_HEAP_BYTES);
+      digitalWrite(STATUS_LED, LOW);
+      delay(200);
+      esp_restart();
+    }
   }
 
   // WiFi設定後の自動再起動タイマー (非ブロッキング8秒)

@@ -62,36 +62,43 @@ def select_serial_port():
             continue
         filtered_ports.append(p)
 
+    # platformio.ini に明示的な指定がある場合はそれを優先
+    if env.get("UPLOAD_PORT"):
+        return
+
     # もし除外した結果ゼロになった場合は全ポートを候補に戻す（安全策）
     candidates = filtered_ports if filtered_ports else all_ports
 
-    # 候補が1つだけなら自動選択
-    if len(candidates) == 1:
+    # 1. 過去に選択・記録されたポートがあるかチェック
+    cache_file = os.path.join(env.subst("$PROJECT_DIR"), ".pio", ".last_selected_port")
+    cached_candidate = None
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                last_port = f.read().strip().upper()
+            for p in candidates:
+                if p.device.upper() == last_port:
+                    cached_candidate = p
+                    break
+        except Exception:
+            pass
+
+    # 2. 記録されたポートが現在も接続されていれば、Arduino IDEと同様に自動使用（止まらず進行）
+    if cached_candidate:
+        chosen = cached_candidate.device
+        print(f"\n[Select Port] Using remembered port: {chosen} ({cached_candidate.description})\n")
+    elif len(candidates) == 1:
         chosen = candidates[0].device
         print(f"\n[Select Port] Automatically selected: {chosen} ({candidates[0].description})\n")
     else:
-        # 複数ポートがある場合は対話形式で選択
+        # 初回または記録されたポートが抜かれている場合のみ対話形式で選択
         print("\n" + "=" * 50)
         print(" [Select Port] Multiple serial ports detected:")
         for idx, p in enumerate(candidates, 1):
             print(f"   [{idx}] {p.device} : {p.description}")
         print("=" * 50)
 
-        # 最後に選択したポートのキャッシュを読み込む（あればデフォルトに）
-        cache_file = os.path.join(env.subst("$PROJECT_DIR"), ".pio", ".last_selected_port")
-        default_idx = 1
-        if os.path.exists(cache_file):
-            try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    last_port = f.read().strip().upper()
-                for idx, p in enumerate(candidates, 1):
-                    if p.device.upper() == last_port:
-                        default_idx = idx
-                        break
-            except Exception:
-                pass
-
-        prompt = f" Select port [1-{len(candidates)}] (default: {default_idx}): "
+        prompt = f" Select port [1-{len(candidates)}] (default: 1): "
         chosen = None
 
         # 対話入力の受付
@@ -103,7 +110,7 @@ def select_serial_port():
                 sys.exit(1)
 
             if not user_input:
-                chosen = candidates[default_idx - 1].device
+                chosen = candidates[0].device
                 break
 
             if user_input.isdigit():
@@ -114,7 +121,7 @@ def select_serial_port():
             
             print(f" Invalid selection. Please enter a number between 1 and {len(candidates)}.")
 
-        # 選択したポートをキャッシュに保存
+        # 選択したポートをキャッシュに保存（次回から自動使用）
         try:
             os.makedirs(os.path.dirname(cache_file), exist_ok=True)
             with open(cache_file, "w", encoding="utf-8") as f:
@@ -122,7 +129,7 @@ def select_serial_port():
         except Exception:
             pass
 
-        print(f"\n[Select Port] Selected: {chosen}\n")
+        print(f"\n[Select Port] Selected and remembered: {chosen}\n")
 
     # PlatformIO の環境変数に反映
     if chosen:
